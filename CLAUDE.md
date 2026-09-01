@@ -40,6 +40,21 @@ modules via the harness `require` shim, and assert on behaviour (timings,
 counts, state transitions), not implementation details.
 
 Engine API names (`Bob_*` animation clips, sound names, outfit/item ids,
-door/lock methods) cannot be verified offline — they are best-effort against
-B42.20 and are listed in README "Known limitations". In-game errors appear
-as `[BNS]` lines in the game's `console.txt`.
+door/lock/vehicle methods) cannot be verified offline — they are best-effort
+against B42.20 and are listed in README "Known limitations". In-game errors
+appear as `[BNS]` lines in the game's `console.txt`.
+
+That gap is what the **in-game debug panel** covers (`BNS_Debug.lua` server-side,
+`BNS_DebugUI.lua` / `BNS_DebugOverlay.lua` client-side): `-debug` or admin, F7,
+then spawn any archetype, force any program, and run scenario tests on demand
+rather than waiting for a 24h raid cooldown or a 5% last-stand roll. The overlay
+draws each NPC's live program above their head. See README "Debug & testing".
+
+When adding a behaviour, add a Scenarios entry for it in `BNS.Debug.Scenarios`
+so it can be exercised in-game, alongside the offline suite.
+
+Two invariants worth keeping in mind when touching the debug code:
+- Every debug command must be gated server-side in `BNS.Debug.handle` — MP
+  clients can forge `sendClientCommand`, so the UI's own check is cosmetic.
+- Never pick "the newest NPC" by iterating `pairs(state.npcs)`; the order is
+  arbitrary. `BNS.Debug.spawnNPC` returns the ids it created — use those.

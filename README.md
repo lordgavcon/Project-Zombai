@@ -94,11 +94,51 @@ clients.
                 attack/flee/defend/trade) · BNS_Brain (per-tick dispatcher,
                 damage & death hooks) · BNS_Bases (POI claiming, lazy
                 barricading & stocking) · BNS_Raids (base detection, raid
-                squads, sabotage) · BNS_Commands (validated trade/talk) ·
-                BNS_Main (director: population, live/virtual boundary)
+                squads, sabotage) · BNS_ZombieThreat (living-vs-dead, 4:1 rule)
+                · BNS_Doors / BNS_Locks (break-ins, combination locks) ·
+                BNS_Scavenge (looting + evidence) · BNS_Vehicles (claiming,
+                trunk hauling) · BNS_Commands (validated trade/talk) ·
+                BNS_Debug (gated debug commands) · BNS_Main (director:
+                population, live/virtual boundary)
   client/BNS/   BNS_Client (server commands, floating speech) ·
-                BNS_ContextMenu (Talk/Trade) · BNS_TradeWindow (barter UI)
+                BNS_ContextMenu (Talk/Trade) · BNS_TradeWindow (barter UI) ·
+                BNS_LockMenu (padlocks) · BNS_DebugUI (test panel) ·
+                BNS_DebugOverlay (NPC state above heads)
+tests/          offline suites + run_tests.sh (see "Debug & testing")
 ```
+
+## Debug & testing
+
+Two layers: `tests/` proves the *logic* offline, the in-game debug panel proves
+the *engine integration* (API names, pathfinding, animations, MP sync) that no
+offline test can reach.
+
+**Offline suites** — run `sh tests/run_tests.sh` (needs `lua5.1`/`luac5.1`; the
+game's Kahlua interpreter is Lua 5.1-compatible). It syntax-checks every Lua file
+and runs six suites that load the real mod modules against stubbed PZ APIs:
+archetype weighting, zombie threat/overwhelm, doors & locks, scavenging, vehicles,
+and the debug commands themselves.
+
+**In-game debug panel** — start the game with the `-debug` launch option (or be an
+admin on a server), then press **F7** (or right-click yourself → *Project Zombai:
+Debug panel*). Five tabs:
+
+| Tab | What it does |
+|---|---|
+| World | Live/virtual NPC counts, sandbox options (click a boolean to toggle it live), fortified POIs, detected player bases with raid-cooldown countdowns |
+| NPCs | Every NPC with program, health, archetype, distance and flags; select one to Go to / Bring here / Kill / cycle its program / give it a vehicle / swarm it with zombies. Also toggles the overlay |
+| Spawn | One click per archetype (farmer, city folk, thug, police, firefighter, ex-military) plus survivor and trader, 1–5 at a time as a squad; raid me, fortify a POI, drop a loot box, spawn a horde, clear all NPCs |
+| Scenarios | Ten one-click behaviour tests — warning shout, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |
+| Log | The mod's own `[BNS]` event log, newest first, without tailing `console.txt` |
+
+The **overlay** (NPCs tab) is the main validation tool: it draws each NPC's current
+program, health and archetype above their head, so you can watch state transitions
+happen — WANDER → APPROACH → ATTACK, FIGHTZ when zombies close in, FLEE when the
+4:1 rule trips, SCAVENGE and HAUL on a loot run.
+
+Every debug command is re-checked server-side before it acts: a multiplayer client
+can send whatever it likes, so the panel's own permission check is only cosmetic.
+Non-admin requests are dropped and logged.
 
 ## Known limitations / TODO
 

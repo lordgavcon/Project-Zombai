@@ -68,6 +68,12 @@ function BNS.Client.onServerCommand(module, command, args)
         if player and not args.ok then
             player:setHaloNote(getText("UI_BNS_TradeRejected"), 255, 200, 100, 300)
         end
+
+    elseif command == "debugSnapshot" then
+        if BNS.DebugUI then BNS.DebugUI.onSnapshot(args) end
+
+    elseif command == "debugResult" then
+        if BNS.DebugUI then BNS.DebugUI.onResult(args) end
     end
 end
 

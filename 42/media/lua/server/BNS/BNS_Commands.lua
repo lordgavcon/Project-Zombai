@@ -140,6 +140,8 @@ end
 
 function BNS.Commands.onClientCommand(module, command, player, args)
     if module ~= BNS.CommandModule then return end
+    -- Debug commands carry their own admin/debug-mode gate.
+    if BNS.Debug and BNS.Debug.handle(command, player, args) then return end
     if command == "requestTrade" then BNS.Commands.requestTrade(player, args)
     elseif command == "doTrade" then BNS.Commands.doTrade(player, args)
     elseif command == "talk" then BNS.Commands.talk(player, args)

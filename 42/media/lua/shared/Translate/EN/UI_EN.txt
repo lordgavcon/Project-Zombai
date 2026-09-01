@@ -22,4 +22,7 @@ UI_EN = {
 	UI_BNS_LockedDoor = "Combination lock - you don't know the code",
 	UI_BNS_RobberyDone = "Pleasure doing business.",
 	UI_BNS_RaidWarning = "You hear shouting outside...",
+	UI_BNS_DebugTitle = "Project Zombai - Debug",
+	UI_BNS_DebugOpen = "Project Zombai: Debug panel",
+	UI_BNS_DebugDenied = "Debug panel needs debug mode (-debug) or admin access",
 }

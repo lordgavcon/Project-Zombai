@@ -129,8 +129,23 @@ function BNS.worldHours()
     return gt:getWorldAgeHours()
 end
 
+-- Recent log lines, newest last. The debug UI reads this so testers
+-- don't have to tail console.txt; every existing BNS.log call feeds it.
+BNS.logBuffer = BNS.logBuffer or {}
+BNS.LOG_BUFFER_MAX = 120
+
 function BNS.log(msg)
-    print("[BNS] " .. tostring(msg))
+    local text = tostring(msg)
+    print("[BNS] " .. text)
+    local stamp = 0
+    if getGameTime then
+        local ok, hours = pcall(function() return getGameTime():getWorldAgeHours() end)
+        if ok and hours then stamp = hours end
+    end
+    table.insert(BNS.logBuffer, { h = stamp, text = text })
+    while #BNS.logBuffer > BNS.LOG_BUFFER_MAX do
+        table.remove(BNS.logBuffer, 1)
+    end
 end
 
 -- Deterministic-ish unique id generator (persisted counter is kept in
