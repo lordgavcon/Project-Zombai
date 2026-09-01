@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BNS: gun-armed bandits hold a pistol aim stance during the warning
+     phase and while covering a player (BNSAnim=aim). -->
+<animNode>
+	<m_Name>bns_aim</m_Name>
+	<m_AnimName>Bob_AimPistol</m_AnimName>
+	<m_Looped>True</m_Looped>
+	<m_Priority>11</m_Priority>
+	<m_Conditions>
+		<m_Name>BNSNPC</m_Name>
+		<m_Type>STRING</m_Type>
+		<m_StringValue>true</m_StringValue>
+	</m_Conditions>
+	<m_Conditions>
+		<m_Name>BNSAnim</m_Name>
+		<m_Type>STRING</m_Type>
+		<m_StringValue>aim</m_StringValue>
+	</m_Conditions>
+</animNode>

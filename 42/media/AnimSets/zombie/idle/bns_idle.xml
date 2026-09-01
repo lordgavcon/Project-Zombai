@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BNS: NPC shells idle with the player's idle instead of the zombie sway.
+     Active only while the brain sets BNSAnim=idle on the shell. -->
+<animNode>
+	<m_Name>bns_idle</m_Name>
+	<m_AnimName>Bob_Idle</m_AnimName>
+	<m_Looped>True</m_Looped>
+	<m_Priority>10</m_Priority>
+	<m_Conditions>
+		<m_Name>BNSNPC</m_Name>
+		<m_Type>STRING</m_Type>
+		<m_StringValue>true</m_StringValue>
+	</m_Conditions>
+	<m_Conditions>
+		<m_Name>BNSAnim</m_Name>
+		<m_Type>STRING</m_Type>
+		<m_StringValue>idle</m_StringValue>
+	</m_Conditions>
+</animNode>

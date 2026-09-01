@@ -1,0 +1,6 @@
+name=Project Zombai
+id=ProjectZombai
+description=Project Zombai adds persistent, world-navigating human NPCs to Build 42: environment-themed bandits (farmers, city folk, rogue police, firefighters, ex-military) that rob players, raid and sabotage bases, fight and fall to zombies, break down doors, and fortify points of interest into supply-stocked strongholds. Also adds neutral survivors and traders you can barter with, plus combination locks with clan quick entry. Server-authoritative AI, multiplayer compatible.
+poster=poster.png
+require=
+versionMin=42.0

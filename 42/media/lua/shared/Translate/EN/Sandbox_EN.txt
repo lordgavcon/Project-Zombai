@@ -1,0 +1,42 @@
+Sandbox_EN = {
+	Sandbox_BNS = "Project Zombai",
+
+	Sandbox_BNS_BanditSpawnRate = "Bandit spawn rate",
+	Sandbox_BNS_BanditSpawnRate_tooltip = "How aggressively bandits spawn near players. 0 disables bandit spawns.",
+
+	Sandbox_BNS_SurvivorSpawnRate = "Survivor spawn rate",
+	Sandbox_BNS_SurvivorSpawnRate_tooltip = "How often neutral survivors and traders spawn. 0 disables them.",
+
+	Sandbox_BNS_MaxLiveNPCs = "Max live NPCs",
+	Sandbox_BNS_MaxLiveNPCs_tooltip = "Maximum simultaneously simulated NPCs across the whole map. Distant NPCs are virtualised (kept persistent but not simulated).",
+
+	Sandbox_BNS_MilitiaEnabled = "Rogue militia groups",
+	Sandbox_BNS_MilitiaEnabled_tooltip = "Enable the top bandit tier: organised, armed militia squads.",
+
+	Sandbox_BNS_MilitiaGunChance = "Militia firearm chance (%)",
+	Sandbox_BNS_MilitiaGunChance_tooltip = "Chance for each militia member to carry a firearm instead of a melee weapon.",
+
+	Sandbox_BNS_BaseRaidsEnabled = "Base raids & sabotage",
+	Sandbox_BNS_BaseRaidsEnabled_tooltip = "Bandit groups will periodically raid player bases: breaking barricades, sabotaging generators and stealing from containers.",
+
+	Sandbox_BNS_RaidCooldownHours = "Raid cooldown (in-game hours)",
+	Sandbox_BNS_RaidCooldownHours_tooltip = "Minimum in-game hours between raids on the same base.",
+
+	Sandbox_BNS_FortifiedPOIsEnabled = "Fortified points of interest",
+	Sandbox_BNS_FortifiedPOIsEnabled_tooltip = "Bandit factions convert selected points of interest into fortified, supply-stocked strongholds guarded by defenders.",
+
+	Sandbox_BNS_MaxFortifiedPOIs = "Max fortified POIs",
+	Sandbox_BNS_MaxFortifiedPOIs_tooltip = "Maximum number of points of interest bandits may fortify.",
+
+	Sandbox_BNS_TradersEnabled = "Traders",
+	Sandbox_BNS_TradersEnabled_tooltip = "Enable trader survivors that barter goods with players.",
+
+	Sandbox_BNS_RobberyEnabled = "Robberies",
+	Sandbox_BNS_RobberyEnabled_tooltip = "Low-tier bandits may demand and take items from players instead of attacking outright.",
+
+	Sandbox_BNS_NPCDamageMultiplier = "NPC damage multiplier",
+	Sandbox_BNS_NPCDamageMultiplier_tooltip = "Scales all damage NPCs deal to players.",
+
+	Sandbox_BNS_DoorOpenDelay = "Bandit door-opening delay (seconds)",
+	Sandbox_BNS_DoorOpenDelay_tooltip = "How long a bandit rattles at an unlocked door before it opens - the rattling is audible, warning anyone inside. Doors secured with a combination lock, key lock or barricade can't be opened and must be broken down instead.",
+}

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BNS: one-shot melee swing using the player's one-handed attack
+     (BNSAnim=swing, pulsed by BNS_Anim.lua then reset). -->
+<animNode>
+	<m_Name>bns_swing</m_Name>
+	<m_AnimName>Bob_AttackOneHanded</m_AnimName>
+	<m_Looped>False</m_Looped>
+	<m_Priority>12</m_Priority>
+	<m_Conditions>
+		<m_Name>BNSNPC</m_Name>
+		<m_Type>STRING</m_Type>
+		<m_StringValue>true</m_StringValue>
+	</m_Conditions>
+	<m_Conditions>
+		<m_Name>BNSAnim</m_Name>
+		<m_Type>STRING</m_Type>
+		<m_StringValue>swing</m_StringValue>
+	</m_Conditions>
+</animNode>

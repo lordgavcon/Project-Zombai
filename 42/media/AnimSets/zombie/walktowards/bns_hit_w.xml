@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- BNS: flinch node for the walking state, same trigger as idle/bns_hit. -->
+<animNode>
+	<m_Name>bns_hit_w</m_Name>
+	<m_AnimName>Bob_HitReaction</m_AnimName>
+	<m_Looped>False</m_Looped>
+	<m_Priority>14</m_Priority>
+	<m_Conditions>
+		<m_Name>BNSNPC</m_Name>
+		<m_Type>STRING</m_Type>
+		<m_StringValue>true</m_StringValue>
+	</m_Conditions>
+	<m_Conditions>
+		<m_Name>BNSAnim</m_Name>
+		<m_Type>STRING</m_Type>
+		<m_StringValue>hit</m_StringValue>
+	</m_Conditions>
+</animNode>

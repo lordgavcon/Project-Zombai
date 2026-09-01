@@ -1,0 +1,79 @@
+VERSION = 1,
+
+option BNS.BanditSpawnRate
+{
+	type = integer, min = 0, max = 10, default = 3,
+	page = BNS, translation = BNS_BanditSpawnRate,
+}
+
+option BNS.SurvivorSpawnRate
+{
+	type = integer, min = 0, max = 10, default = 2,
+	page = BNS, translation = BNS_SurvivorSpawnRate,
+}
+
+option BNS.MaxLiveNPCs
+{
+	type = integer, min = 4, max = 64, default = 20,
+	page = BNS, translation = BNS_MaxLiveNPCs,
+}
+
+option BNS.MilitiaEnabled
+{
+	type = boolean, default = true,
+	page = BNS, translation = BNS_MilitiaEnabled,
+}
+
+option BNS.MilitiaGunChance
+{
+	type = integer, min = 0, max = 100, default = 60,
+	page = BNS, translation = BNS_MilitiaGunChance,
+}
+
+option BNS.BaseRaidsEnabled
+{
+	type = boolean, default = true,
+	page = BNS, translation = BNS_BaseRaidsEnabled,
+}
+
+option BNS.RaidCooldownHours
+{
+	type = integer, min = 1, max = 168, default = 24,
+	page = BNS, translation = BNS_RaidCooldownHours,
+}
+
+option BNS.FortifiedPOIsEnabled
+{
+	type = boolean, default = true,
+	page = BNS, translation = BNS_FortifiedPOIsEnabled,
+}
+
+option BNS.MaxFortifiedPOIs
+{
+	type = integer, min = 0, max = 12, default = 4,
+	page = BNS, translation = BNS_MaxFortifiedPOIs,
+}
+
+option BNS.TradersEnabled
+{
+	type = boolean, default = true,
+	page = BNS, translation = BNS_TradersEnabled,
+}
+
+option BNS.RobberyEnabled
+{
+	type = boolean, default = true,
+	page = BNS, translation = BNS_RobberyEnabled,
+}
+
+option BNS.NPCDamageMultiplier
+{
+	type = double, min = 0.1, max = 5.0, default = 1.0,
+	page = BNS, translation = BNS_NPCDamageMultiplier,
+}
+
+option BNS.DoorOpenDelay
+{
+	type = integer, min = 1, max = 10, default = 3,
+	page = BNS, translation = BNS_DoorOpenDelay,
+}
