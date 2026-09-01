@@ -82,6 +82,7 @@ function BNS.Spawner.materialise(rec)
         squad = rec.squad,
         home = rec.home,
         stock = rec.stock,
+        loot = rec.loot,
         cooldown = 0,
         speechCooldown = 0,
     }
@@ -188,18 +189,26 @@ end
 -- Death -----------------------------------------------------------------
 
 function BNS.Spawner.dropLoot(zombie, brain)
-    local drops = BNS.Loadouts.Drops[brain.tier]
     local sq = zombie:getCurrentSquare()
-    if not drops or not sq then return end
-    for _, d in ipairs(drops) do
-        if ZombRand(100) < d.chance then
-            for _ = 1, (d.count or 1) do
-                sq:AddWorldInventoryItem(d.item, 0.2, 0.2, 0)
+    if not sq then return end
+    local drops = BNS.Loadouts.Drops[brain.tier]
+    if drops then
+        for _, d in ipairs(drops) do
+            if ZombRand(100) < d.chance then
+                for _ = 1, (d.count or 1) do
+                    sq:AddWorldInventoryItem(d.item, 0.2, 0.2, 0)
+                end
             end
         end
     end
     -- Their weapon always drops.
     if brain.weapon and brain.weapon.item then
         sq:AddWorldInventoryItem(brain.weapon.item, 0.3, 0.3, 0)
+    end
+    -- Everything they scavenged drops too.
+    if brain.loot then
+        for _, fullType in ipairs(brain.loot) do
+            sq:AddWorldInventoryItem(fullType, 0.4, 0.4, 0)
+        end
     end
 end

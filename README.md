@@ -15,6 +15,7 @@
 - **Fortified points of interest** — the militia claims a configurable number of known locations (fire stations, gas stations, warehouses, gun stores across Rosewood, Muldraugh, West Point, Riverside, March Ridge…). Claimed POIs get barricaded windows/doors, supply-stocked containers (food, ammo, meds, fuel, building materials) and a standing garrison. Clear the garrison and the supplies are yours.
 - **The living vs the dead** — all NPCs (bandits, survivors, traders) treat zombies as the real enemy. Zombies within 5 tiles pre-empt whatever an NPC was doing — even a firefight with you — and get put down with the NPC's actual weapon (gunfire draws more zombies in, so it escalates). Zombies hurt NPCs back: adjacent zombies claw and **grab** them, with player-style flinch and held-struggle reactions, and can kill them. The overwhelm rule is 1 living NPC per 4 zombies within a 5-tile radius: worse odds and they break off and run from the mob — except the rare last-stander (~5% of civilians, ~10% of thugs, ~15% of militia) who plants their feet and fights to the end.
 - **Doors & combination locks** — bandits can get through closed doors, never silently: an unlocked door takes ~3 seconds (sandbox-tunable) of audible handle-rattling before it opens, so anyone inside gets a warning. Your counter is a **combination lock**: attach a vanilla combination padlock to any door (right-click), and bandits can't open it — a bandit in pursuit or on a raid has to *break the door down*, and bashing works against the door's actual durability: each swing deals tier-based damage (militia hit hardest, half again more with an axe or sledgehammer in hand), so a flimsy interior door falls in seconds while a metal or high-level-carpentry door takes *much* longer — and after ~90 seconds of futile hammering the bandit gives up. Partial damage persists, every bash is loud enough to warn the whole street and draw zombies, and wandering bandits just give up and go around. The lock gives **quick entry to its owner and everyone in the owner's clan** (MP faction) via a right-click "Open/Close (combination)" option, while everyone else is locked out. Owners/clanmates can remove the lock and get the padlock back; a smashed door takes the lock with it.
+- **Scavenging** — NPCs loot buildings for supplies and equipment as they travel. They take the valuables (weapons, ammo, food, meds) and leave the evidence: low-value items stay in the container and a piece or two ends up scattered on the floor, so a half-emptied cupboard with junk around it tells you someone living has been through. Looted spots are skipped for a few in-game days, kill a scavenger and their haul drops with them, and traders convert what they find into sale stock — so trader inventories genuinely restock from the world. Player bases are never quietly scavenged; only raids touch your stuff. Sandbox-toggleable.
 - **Survivors & traders** — neutral NPCs wander the world. Right-click a survivor to talk (they drop rumours, including militia base warnings); right-click a trader to open a barter window and trade your goods against their stock, valued item-for-item.
 - **Persistence** — every NPC is a record in global mod data. NPCs near players are fully simulated ("live"); distant ones are *virtualised* — despawned but still travelling the map abstractly — and rematerialise when you come near their current position. State survives save/load and server restarts.
 - **Multiplayer compatible** — all AI, combat, robbery, raid and trade logic runs on the server; clients only render speech/UI and send trade proposals, which the server validates (no client-side item forging). The same server code runs in-process in single player, so SP and MP share one code path.
@@ -75,6 +76,7 @@ clients.
 | Robberies | on | Low-tier bandits mug instead of attack |
 | NPC damage multiplier | 1.0 | Scales NPC → player damage |
 | Bandit door-opening delay | 3s | Audible rattling before an unlocked door opens |
+| NPC scavenging | on | NPCs loot buildings, leaving low-value evidence |
 
 ## Code layout
 
@@ -116,8 +118,6 @@ clients.
   item ids (`Base.GardenFork`, `Base.WoodAxe`…) should be verified against
   42.20's scripts if a specific archetype spawns in default clothes or
   bare-handed.
-- NPCs don't loot buildings for themselves, use vehicles, or fight zombies
-  intelligently (they rely on toughness).
-- Trader stock doesn't restock over time yet.
+- NPCs don't use vehicles.
 - Raids target the learned base centre; sprawling multi-building bases are
   only partially swept.

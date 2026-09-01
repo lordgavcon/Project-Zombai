@@ -15,6 +15,7 @@ require "BNS/BNS_Programs"
 require "BNS/BNS_Anim"
 require "BNS/BNS_ZombieThreat"
 require "BNS/BNS_Doors"
+require "BNS/BNS_Scavenge"
 
 BNS.Brain = {}
 
@@ -105,6 +106,7 @@ local function updateNPC(zombie, brain)
     if brain.role ~= BNS.Role.BANDIT
             and brain.program ~= BNS.Program.FLEE
             and brain.program ~= BNS.Program.FIGHTZ
+            and brain.program ~= BNS.Program.SCAVENGE
             and brain.program ~= BNS.Program.TRADE then
         brain.program = BNS.Program.TRADE
     end
@@ -135,7 +137,11 @@ local function updateNPC(zombie, brain)
         or brain.program == BNS.Program.ROB
         or brain.program == BNS.Program.RAID
         or brain.program == BNS.Program.DEFEND
-    if stalled and wantsMove and BNS.isBandit(zombie) and not brain.door then
+        or brain.program == BNS.Program.SCAVENGE
+    -- Bandits work doors anywhere; anyone gets to open them on a loot run.
+    local mayOpenDoors = BNS.isBandit(zombie)
+        or brain.program == BNS.Program.SCAVENGE
+    if stalled and wantsMove and mayOpenDoors and not brain.door then
         brain.stallTicks = (brain.stallTicks or 0) + 1
         if brain.stallTicks >= 2 then
             brain.stallTicks = 0

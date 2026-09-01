@@ -62,6 +62,11 @@ BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
         brain.program = BNS.Program.APPROACH
         return
     end
+    -- Now and then, go loot a nearby building instead of drifting on.
+    if BNS.Scavenge and ZombRand(400) == 0
+            and BNS.Scavenge.tryStart(zombie, brain) then
+        return
+    end
     if arrived(zombie, brain, 3) then
         -- Pick a new destination: nearby drift, occasionally a long trek.
         local reach = ZombRand(100) < 15 and 300 or 40

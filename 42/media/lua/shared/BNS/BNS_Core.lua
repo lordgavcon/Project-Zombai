@@ -36,7 +36,8 @@ BNS.Program = {
     RAID     = "raid",
     DEFEND   = "defend",
     TRADE    = "trade",
-    FIGHTZ   = "fightz", -- fighting off real zombies
+    FIGHTZ   = "fightz",   -- fighting off real zombies
+    SCAVENGE = "scavenge", -- looting a building for supplies
 }
 
 -- Sandbox --------------------------------------------------------------
@@ -61,6 +62,7 @@ function BNS.Options()
         robbery          = BNS.SV("RobberyEnabled", true),
         damageMult       = BNS.SV("NPCDamageMultiplier", 1.0),
         doorDelay        = BNS.SV("DoorOpenDelay", 3),
+        scavenging       = BNS.SV("ScavengingEnabled", true),
     }
 end
 

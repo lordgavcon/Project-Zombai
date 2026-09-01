@@ -39,4 +39,7 @@ Sandbox_EN = {
 
 	Sandbox_BNS_DoorOpenDelay = "Bandit door-opening delay (seconds)",
 	Sandbox_BNS_DoorOpenDelay_tooltip = "How long a bandit rattles at an unlocked door before it opens - the rattling is audible, warning anyone inside. Doors secured with a combination lock, key lock or barricade can't be opened and must be broken down instead.",
+
+	Sandbox_BNS_ScavengingEnabled = "NPC scavenging",
+	Sandbox_BNS_ScavengingEnabled_tooltip = "Wandering NPCs loot buildings for supplies and equipment, taking the valuables and leaving low-value items behind (some scattered on the floor as evidence). Player bases are never scavenged - only raids target those.",
 }

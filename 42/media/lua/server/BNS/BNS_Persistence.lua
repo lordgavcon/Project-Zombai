@@ -81,6 +81,8 @@ function BNS.Persistence.syncFromShell(zombie)
     rec.program = brain.program
     rec.targetX, rec.targetY = brain.targetX, brain.targetY
     rec.health = brain.health
+    rec.loot = brain.loot
+    rec.stock = brain.stock
 end
 
 -- Advance a virtual (unloaded) NPC towards its wander target. Called

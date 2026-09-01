@@ -77,3 +77,9 @@ option BNS.DoorOpenDelay
 	type = integer, min = 1, max = 10, default = 3,
 	page = BNS, translation = BNS_DoorOpenDelay,
 }
+
+option BNS.ScavengingEnabled
+{
+	type = boolean, default = true,
+	page = BNS, translation = BNS_ScavengingEnabled,
+}
