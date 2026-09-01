@@ -15,6 +15,7 @@ require "BNS/BNS_Archetypes"
 require "BNS/BNS_Persistence"
 require "BNS/BNS_Spawner"
 require "BNS/BNS_Programs"
+require "BNS/BNS_Vehicles"
 
 BNS.Raids = {}
 
@@ -88,6 +89,19 @@ function BNS.Raids.launchRaid(baseRec)
     local sx = baseRec.x + math.floor(math.cos(angle) * 150)
     local sy = baseRec.y + math.floor(math.sin(angle) * 150)
 
+    -- About half of raids bring a truck: shared by the squad, staged at
+    -- the jump-off point, and everything stolen ends up in its trunk —
+    -- so a beaten raid can be chased down and the goods recovered.
+    local convoy = nil
+    if BNS.Vehicles and opts.vehicles and ZombRand(100) < 50 then
+        local sq = getCell() and getCell():getGridSquare(sx, sy, 0) or nil
+        local truck = BNS.Vehicles.spawnVehicle("Base.PickUpTruck", sq)
+        if truck then
+            if truck.getModData then truck:getModData().BNS_Owner = squadId end
+            convoy = { x = sx, y = sy, script = "Base.PickUpTruck" }
+        end
+    end
+
     for i = 1, size do
         local rec = BNS.Persistence.newRecord(BNS.Role.BANDIT, tier,
             sx + ZombRand(-3, 4), sy + ZombRand(-3, 4), 0)
@@ -97,6 +111,9 @@ function BNS.Raids.launchRaid(baseRec)
         rec.program = BNS.Program.RAID
         rec.targetX, rec.targetY = baseRec.x, baseRec.y
         rec.raid = { x = baseRec.x, y = baseRec.y, loot = 0 }
+        if convoy then
+            rec.vehicle = { x = convoy.x, y = convoy.y, script = convoy.script }
+        end
     end
     BNS.log("raid launched on base at " .. baseRec.x .. "," .. baseRec.y
         .. " tier=" .. tier .. " size=" .. size)
@@ -159,6 +176,10 @@ local function stealFromNearbyContainer(zombie, brain)
             if it then
                 container:Remove(it)
                 brain.raid.loot = (brain.raid.loot or 0) + 1
+                -- Stolen goods are real: they ride in the raider's pack
+                -- (and later their truck), recoverable if the raid dies.
+                brain.loot = brain.loot or {}
+                table.insert(brain.loot, it:getFullType())
                 return true
             end
         end
@@ -203,7 +224,13 @@ BNS.Programs[BNS.Program.RAID] = function(zombie, brain, ctx)
     raid.duration = (raid.duration or 1800) - 1
     if raid.duration <= 0 or (brain.raid.loot or 0) >= 6 then
         brain.raid = nil
-        brain.program = BNS.Program.FLEE
+        -- With a truck waiting: load the haul into it, then run.
+        if brain.vehicle and brain.loot and #brain.loot > 0 then
+            brain.program = BNS.Program.HAUL
+            brain.postHaul = BNS.Program.FLEE
+        else
+            brain.program = BNS.Program.FLEE
+        end
         brain.fleeUntil = 1200
     elseif ZombRand(120) == 0 then
         BNS.Programs.walkTo(zombie,

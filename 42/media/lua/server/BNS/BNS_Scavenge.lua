@@ -30,7 +30,8 @@ local BASE_EXCLUSION   = 30  -- tiles: keep-out radius around player bases
 local BASE_HIT_MIN     = 12  -- playerBases.hits confirming a base (matches BNS_Raids)
 local VALUE_THRESHOLD  = 3   -- items worth at least this get taken
 local TAKE_CAP         = 4   -- max items taken per container square
-local PACK_CAP         = 10  -- max items an NPC carries
+BNS.Scavenge.PACK_CAP  = 10  -- max items an NPC carries (BNS_Vehicles reads it)
+local PACK_CAP         = BNS.Scavenge.PACK_CAP
 local SCATTER_MAX      = 2   -- leftovers pulled onto the floor as evidence
 local LOOT_COOLDOWN_H  = 72  -- in-game hours before a spot is worth re-looting
 local RUMMAGE_TICKS    = 24  -- full brain ticks spent rifling (~4s)
@@ -201,6 +202,12 @@ BNS.Programs[BNS.Program.SCAVENGE] = function(zombie, brain, ctx)
 
     local sq = getCell() and getCell():getGridSquare(sc.x, sc.y, sc.z) or nil
     if sq then BNS.Scavenge.lootSquare(zombie, brain, sq) end
+
+    -- Pack full: run it to the vehicle instead of looting on.
+    if BNS.Vehicles and BNS.Vehicles.wantsHaul(zombie, brain) then
+        brain.scav = nil
+        return
+    end
 
     sc.containersLeft = sc.containersLeft - 1
     local nxt = sc.containersLeft > 0 and BNS.Scavenge.findContainerSquare(zombie) or nil

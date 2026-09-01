@@ -16,6 +16,7 @@
 - **The living vs the dead** — all NPCs (bandits, survivors, traders) treat zombies as the real enemy. Zombies within 5 tiles pre-empt whatever an NPC was doing — even a firefight with you — and get put down with the NPC's actual weapon (gunfire draws more zombies in, so it escalates). Zombies hurt NPCs back: adjacent zombies claw and **grab** them, with player-style flinch and held-struggle reactions, and can kill them. The overwhelm rule is 1 living NPC per 4 zombies within a 5-tile radius: worse odds and they break off and run from the mob — except the rare last-stander (~5% of civilians, ~10% of thugs, ~15% of militia) who plants their feet and fights to the end.
 - **Doors & combination locks** — bandits can get through closed doors, never silently: an unlocked door takes ~3 seconds (sandbox-tunable) of audible handle-rattling before it opens, so anyone inside gets a warning. Your counter is a **combination lock**: attach a vanilla combination padlock to any door (right-click), and bandits can't open it — a bandit in pursuit or on a raid has to *break the door down*, and bashing works against the door's actual durability: each swing deals tier-based damage (militia hit hardest, half again more with an axe or sledgehammer in hand), so a flimsy interior door falls in seconds while a metal or high-level-carpentry door takes *much* longer — and after ~90 seconds of futile hammering the bandit gives up. Partial damage persists, every bash is loud enough to warn the whole street and draw zombies, and wandering bandits just give up and go around. The lock gives **quick entry to its owner and everyone in the owner's clan** (MP faction) via a right-click "Open/Close (combination)" option, while everyone else is locked out. Owners/clanmates can remove the lock and get the padlock back; a smashed door takes the lock with it.
 - **Scavenging** — NPCs loot buildings for supplies and equipment as they travel. They take the valuables (weapons, ammo, food, meds) and leave the evidence: low-value items stay in the container and a piece or two ends up scattered on the floor, so a half-emptied cupboard with junk around it tells you someone living has been through. Looted spots are skipped for a few in-game days, kill a scavenger and their haul drops with them, and traders convert what they find into sale stock — so trader inventories genuinely restock from the world. Player bases are never quietly scavenged; only raids touch your stuff. Sandbox-toggleable.
+- **Vehicles** — NPCs claim parked vehicles (never ones at your base), stash their scavenged haul in the *real* trunk — raid the trunk or steal the whole vehicle and the loot is yours — and travel with them: while off-screen an NPC with a vehicle covers ~5× the ground of one on foot, and the pair rematerialise together, so you'll meet the same scavenger and their loaded car towns apart. Near players there's no faked driving: NPCs are found parked, walking to, or loading their vehicle, and "drive off" by despawning at it. About half of base raids arrive with a pickup truck; everything raiders steal from you goes into its trunk, so wiping out the crew before they leave gets your stuff back.
 - **Survivors & traders** — neutral NPCs wander the world. Right-click a survivor to talk (they drop rumours, including militia base warnings); right-click a trader to open a barter window and trade your goods against their stock, valued item-for-item.
 - **Persistence** — every NPC is a record in global mod data. NPCs near players are fully simulated ("live"); distant ones are *virtualised* — despawned but still travelling the map abstractly — and rematerialise when you come near their current position. State survives save/load and server restarts.
 - **Multiplayer compatible** — all AI, combat, robbery, raid and trade logic runs on the server; clients only render speech/UI and send trade proposals, which the server validates (no client-side item forging). The same server code runs in-process in single player, so SP and MP share one code path.
@@ -77,6 +78,7 @@ clients.
 | NPC damage multiplier | 1.0 | Scales NPC → player damage |
 | Bandit door-opening delay | 3s | Audible rattling before an unlocked door opens |
 | NPC scavenging | on | NPCs loot buildings, leaving low-value evidence |
+| NPC vehicles | on | Claimed vehicles, trunk hauling, raid trucks |
 
 ## Code layout
 
@@ -118,6 +120,10 @@ clients.
   item ids (`Base.GardenFork`, `Base.WoodAxe`…) should be verified against
   42.20's scripts if a specific archetype spawns in default clothes or
   bare-handed.
-- NPCs don't use vehicles.
+- NPC "driving" is park-and-dismount plus fast off-screen travel — zombie
+  shells can't run real vehicle physics, so you'll never see one steering.
+  The vehicle APIs used (`getPartById("TruckBed")`, `addVehicleDebug`,
+  `permanentlyRemove`) are guarded but should be spot-checked against
+  42.20; if trunks misbehave, loot falls back to a pile beside the car.
 - Raids target the learned base centre; sprawling multi-building bases are
   only partially swept.

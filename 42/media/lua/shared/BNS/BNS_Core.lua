@@ -38,6 +38,7 @@ BNS.Program = {
     TRADE    = "trade",
     FIGHTZ   = "fightz",   -- fighting off real zombies
     SCAVENGE = "scavenge", -- looting a building for supplies
+    HAUL     = "haul",     -- carrying loot to a claimed vehicle
 }
 
 -- Sandbox --------------------------------------------------------------
@@ -63,6 +64,7 @@ function BNS.Options()
         damageMult       = BNS.SV("NPCDamageMultiplier", 1.0),
         doorDelay        = BNS.SV("DoorOpenDelay", 3),
         scavenging       = BNS.SV("ScavengingEnabled", true),
+        vehicles         = BNS.SV("NPCVehiclesEnabled", true),
     }
 end
 

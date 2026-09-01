@@ -83,6 +83,7 @@ function BNS.Persistence.syncFromShell(zombie)
     rec.health = brain.health
     rec.loot = brain.loot
     rec.stock = brain.stock
+    rec.vehicle = brain.vehicle or rec.vehicle
 end
 
 -- Advance a virtual (unloaded) NPC towards its wander target. Called
@@ -95,12 +96,19 @@ function BNS.Persistence.virtualStep(rec)
         rec.targetY = rec.y + ZombRand(-400, 400)
     end
     local d = BNS.dist(rec.x, rec.y, rec.targetX, rec.targetY)
+    -- Walking pace on foot; driving pace when travelling with a vehicle.
     local step = 60 -- tiles per virtual tick
+    if rec.vehicle and rec.aboard then step = 300 end
     if d <= step then
         rec.x, rec.y = rec.targetX, rec.targetY
         rec.targetX, rec.targetY = nil, nil
     else
         rec.x = rec.x + (rec.targetX - rec.x) / d * step
         rec.y = rec.y + (rec.targetY - rec.y) / d * step
+    end
+    -- The vehicle rides along with its owner.
+    if rec.vehicle and rec.aboard then
+        rec.vehicle.x = math.floor(rec.x)
+        rec.vehicle.y = math.floor(rec.y)
     end
 end

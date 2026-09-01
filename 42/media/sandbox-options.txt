@@ -83,3 +83,9 @@ option BNS.ScavengingEnabled
 	type = boolean, default = true,
 	page = BNS, translation = BNS_ScavengingEnabled,
 }
+
+option BNS.NPCVehiclesEnabled
+{
+	type = boolean, default = true,
+	page = BNS, translation = BNS_NPCVehiclesEnabled,
+}

@@ -89,6 +89,8 @@ function BNS.Spawner.materialise(rec)
     rec.weapon = brain.weapon
     zombie:getModData().BNS = brain
     BNS.Anim.init(zombie, brain)
+    -- Vehicle owners get their ride placed back beside them.
+    if BNS.Vehicles then BNS.Vehicles.onMaterialise(zombie, brain, rec) end
 
     -- Show the weapon in hand.
     if brain.weapon and brain.weapon.item then
@@ -112,7 +114,12 @@ function BNS.Spawner.dematerialise(zombie)
     local brain = BNS.brain(zombie)
     if brain then
         local rec = BNS.Persistence.getState().npcs[brain.id]
-        if rec then rec.live = false end
+        if rec then
+            rec.live = false
+            -- Standing at their vehicle? They drive off with it (the
+            -- vehicle leaves the world and travels with the record).
+            if BNS.Vehicles then BNS.Vehicles.onDematerialise(zombie, brain, rec) end
+        end
     end
     zombie:removeFromWorld()
     zombie:removeFromSquare()

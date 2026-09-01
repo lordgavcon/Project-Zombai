@@ -67,6 +67,10 @@ BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
             and BNS.Scavenge.tryStart(zombie, brain) then
         return
     end
+    -- And keep an eye out for a usable vehicle to claim.
+    if BNS.Vehicles and not brain.vehicle and ZombRand(600) == 0 then
+        BNS.Vehicles.tryClaim(zombie, brain)
+    end
     if arrived(zombie, brain, 3) then
         -- Pick a new destination: nearby drift, occasionally a long trek.
         local reach = ZombRand(100) < 15 and 300 or 40
