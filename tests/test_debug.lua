@@ -238,6 +238,52 @@ for i = 2, #snap.npcs do
 end
 print("snapshot OK (" .. #snap.npcs .. " rows)")
 
+-- 4b. POI rows: every known POI, claimed flagged, nearest first ---------------
+assert(#snap.bases == #BNS.POIs, "snapshot lists every known POI")
+for i = 2, #snap.bases do
+    assert(snap.bases[i].dist >= snap.bases[i - 1].dist, "POIs sorted nearest first")
+end
+for _, base in ipairs(snap.bases) do
+    assert(base.name and base.x and base.y and base.claimed ~= nil and base.garrison,
+        "POI row is complete: " .. tostring(base.name))
+    assert(base.claimed == false, "nothing fortified yet")
+end
+BNS.Debug.handle("debugPOI", admin, {}) -- fortify the nearest
+replies = {}
+BNS.Debug.handle("debugSnapshot", admin, {})
+local claimedRows = 0
+for _, base in ipairs(lastSnapshot().bases) do
+    if base.claimed then
+        claimedRows = claimedRows + 1
+        assert(base.garrison >= 3, "fortified POI reports its garrison, got " .. base.garrison)
+    end
+end
+assert(claimedRows == 1, "exactly one POI fortified, got " .. claimedRows)
+print("POI rows OK (" .. #snap.bases .. " known, garrison counted)")
+
+-- 4c. Teleport to any POI ------------------------------------------------------
+local target = BNS.POIs[4]
+admin.x, admin.y = 1, 1
+replies = {}
+BNS.Debug.handle("debugGotoPOI", admin, { name = target.name })
+assert(admin.x == target.x and admin.y == target.y, "player moved to the POI")
+local told = false
+for _, r in ipairs(replies) do
+    if r.command == "debugResult" and r.args.text:find(target.name, 1, true) then told = true end
+end
+assert(told, "teleport is reported back")
+-- unknown POI is handled, and does not move the player
+admin.x, admin.y = 42, 42
+BNS.Debug.handle("debugGotoPOI", admin, { name = "Nowhere Special" })
+assert(admin.x == 42 and admin.y == 42, "unknown POI leaves the player put")
+-- and it is gated like everything else
+debugMode = false
+admin.access = "None"
+BNS.Debug.handle("debugGotoPOI", admin, { name = target.name })
+assert(admin.x == 42, "unprivileged teleport refused")
+admin.access = "Admin"
+print("teleport to POI OK")
+
 -- 5. forceProgram lands and clears stale transition state ---------------------
 local targetId, targetShell
 for _, shell in ipairs(shells) do

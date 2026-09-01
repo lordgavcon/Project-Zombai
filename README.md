@@ -125,7 +125,7 @@ Debug panel*). Five tabs:
 
 | Tab | What it does |
 |---|---|
-| World | Live/virtual NPC counts, sandbox options (click a boolean to toggle it live), fortified POIs, detected player bases with raid-cooldown countdowns |
+| World | Live/virtual NPC counts, sandbox options (click a boolean to toggle it live), every known point of interest (fortified ones flagged with their garrison size) with **Teleport to POI** and Fortify nearest, and detected player bases with raid-cooldown countdowns |
 | NPCs | Every NPC with program, health, archetype, distance and flags; select one to Go to / Bring here / Kill / cycle its program / give it a vehicle / swarm it with zombies. Also toggles the overlay |
 | Spawn | One click per archetype (farmer, city folk, thug, police, firefighter, ex-military) plus survivor and trader, 1–5 at a time as a squad; raid me, fortify a POI, drop a loot box, spawn a horde, clear all NPCs |
 | Scenarios | Ten one-click behaviour tests — warning shout, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |

@@ -149,10 +149,17 @@ function BNS.DebugUI:createChildren()
     self.list.font = UIFont.Small
     self.list.drawBorder = true
     self.list.doDrawItem = BNS.DebugUI.drawRow
+    -- All row clicks are handled here (the list captures the mouse, so a
+    -- parent-level handler wouldn't see them).
     self.list.onMouseDown = function(list, mx, my)
         ISScrollingListBox.onMouseDown(list, mx, my)
         local row = list.items[list.selected]
-        if row and row.item and row.item.id then self.selectedId = row.item.id end
+        if not row or not row.item then return end
+        if row.item.id then self.selectedId = row.item.id end
+        if row.item.poi then self.selectedPOI = row.item.poi end
+        if row.item.option and type(row.item.value) == "boolean" then
+            self:send("debugOption", { name = row.item.option, value = not row.item.value })
+        end
     end
     self:addChild(self.list)
 
@@ -180,6 +187,12 @@ function BNS.DebugUI:createChildren()
         addButton("Overlay on/off", 110, 2, 1, function()
             if BNS.DebugOverlay then BNS.DebugOverlay.toggle() end
         end),
+    }
+
+    -- World actions
+    self.worldButtons = {
+        addButton("Teleport to POI", 130, 0, 0, function() self:gotoPOI() end),
+        addButton("Fortify nearest", 120, 1, 0, function() self:send("debugPOI") end),
     }
 
     -- Spawn actions
@@ -229,6 +242,14 @@ function BNS.DebugUI:npcAction(command, extra)
     self:send(command, args)
 end
 
+function BNS.DebugUI:gotoPOI()
+    if not self.selectedPOI then
+        BNS.DebugUI.onResult({ text = "click a point of interest in the list first" })
+        return
+    end
+    self:send("debugGotoPOI", { name = self.selectedPOI })
+end
+
 function BNS.DebugUI:cycleProgram()
     if not self.selectedId then
         BNS.DebugUI.onResult({ text = "select an NPC first" })
@@ -249,6 +270,7 @@ function BNS.DebugUI:refreshButtons()
     local function show(list, visible)
         for _, btn in ipairs(list) do btn:setVisible(visible) end
     end
+    show(self.worldButtons, self.tab == "World")
     show(self.npcButtons, self.tab == "NPCs")
     show(self.spawnButtons, self.tab == "Spawn")
     show(self.scenarioButtons, self.tab == "Scenarios")
@@ -302,9 +324,21 @@ function BNS.DebugUI:rebuildList()
                 { option = name, value = v })
         end
         self.list:addItem("", {})
-        self.list:addItem("-- fortified POIs (" .. #snap.bases .. ") --", {})
+        local fortified = 0
         for _, base in ipairs(snap.bases) do
-            self.list:addItem(string.format("  %s  (%d,%d) %dm", base.name, base.x, base.y, base.dist), {})
+            if base.claimed then fortified = fortified + 1 end
+        end
+        self.list:addItem(string.format(
+            "-- points of interest (%d fortified / %d known) - click one, then Teleport to POI --",
+            fortified, #snap.bases), {})
+        for _, base in ipairs(snap.bases) do
+            local mark = base.claimed
+                and string.format("[fortified, %d garrison]", base.garrison)
+                or "[unclaimed]"
+            self.list:addItem(string.format("%s %s  (%d,%d) %dm  %s",
+                self.selectedPOI == base.name and ">" or " ",
+                base.name, base.x, base.y, base.dist, mark),
+                { poi = base.name, colour = base.claimed and { 1.0, 0.8, 0.5 } or nil })
         end
         self.list:addItem("", {})
         self.list:addItem("-- detected player bases (" .. #snap.playerBases .. ") --", {})
@@ -351,15 +385,6 @@ function BNS.DebugUI:rebuildList()
     end
 end
 
-function BNS.DebugUI:onOptionClick()
-    local row = self.list.items[self.list.selected]
-    if not row or not row.item or not row.item.option then return end
-    local v = row.item.value
-    if type(v) == "boolean" then
-        self:send("debugOption", { name = row.item.option, value = not v })
-    end
-end
-
 -- Frame ---------------------------------------------------------------------------
 
 function BNS.DebugUI:prerender()
@@ -382,12 +407,6 @@ function BNS.DebugUI:render()
     if footer then
         self:drawText(footer, 10, self.height - 20, 0.7, 1.0, 0.7, 1, UIFont.Small)
     end
-end
-
-function BNS.DebugUI:onMouseDown(x, y)
-    ISCollapsableWindow.onMouseDown(self, x, y)
-    if self.tab == "World" then self:onOptionClick() end
-    return true
 end
 
 function BNS.DebugUI:close()

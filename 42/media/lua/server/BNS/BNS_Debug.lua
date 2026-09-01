@@ -126,11 +126,24 @@ function BNS.Debug.snapshot(player)
     end
     table.sort(npcs, function(a, b) return a.dist < b.dist end)
 
+    -- Every known POI, fortified or not: the debug UI teleports to any
+    -- of them, so an unclaimed one can be visited and then fortified.
     local bases = {}
-    for name, base in pairs(state.bases) do
-        table.insert(bases, { name = name, x = base.x, y = base.y,
-            dist = math.floor(BNS.dist(px, py, base.x, base.y)) })
+    for _, poi in ipairs(BNS.POIs) do
+        local claimed = state.bases[poi.name] ~= nil
+        local garrison = 0
+        if claimed then
+            for _, rec in pairs(state.npcs) do
+                if rec.squad == ("garrison_" .. poi.name) then garrison = garrison + 1 end
+            end
+        end
+        table.insert(bases, {
+            name = poi.name, x = poi.x, y = poi.y, z = poi.z or 0,
+            dist = math.floor(BNS.dist(px, py, poi.x, poi.y)),
+            claimed = claimed, garrison = garrison,
+        })
     end
+    table.sort(bases, function(a, b) return a.dist < b.dist end)
 
     local opts = BNS.Options()
     local playerBases = {}
@@ -273,6 +286,26 @@ function BNS.Debug.claimPOI(player)
         radius = best.radius, stockedSquares = {} }
     BNS.Bases.createGarrison(state, best)
     note(player, "militia claimed " .. best.name .. " (" .. math.floor(bestD) .. " tiles away)")
+end
+
+-- Jump to any point of interest by name, fortified or not.
+function BNS.Debug.gotoPOI(player, args)
+    local target = nil
+    for _, poi in ipairs(BNS.POIs) do
+        if poi.name == args.name then target = poi break end
+    end
+    if not target then
+        note(player, "unknown POI: " .. tostring(args.name))
+        return
+    end
+    player:setX(target.x)
+    player:setY(target.y)
+    player:setZ(target.z or 0)
+    player:setLastX(target.x)
+    player:setLastY(target.y)
+    local claimed = BNS.Persistence.getState().bases[target.name] ~= nil
+    note(player, "teleported to " .. target.name
+        .. (claimed and " (fortified)" or " (unclaimed)"))
 end
 
 function BNS.Debug.giveVehicle(player, args)
@@ -452,6 +485,7 @@ local HANDLERS = {
     debugClear    = function(p) BNS.Debug.clearNPCs(p) end,
     debugRaid     = function(p) BNS.Debug.launchRaid(p) end,
     debugPOI      = function(p) BNS.Debug.claimPOI(p) end,
+    debugGotoPOI  = BNS.Debug.gotoPOI,
     debugVehicle  = BNS.Debug.giveVehicle,
     debugZombies  = BNS.Debug.spawnZombies,
     debugLootBox  = function(p) BNS.Debug.spawnLootBox(p) end,
