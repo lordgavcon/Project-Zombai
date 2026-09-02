@@ -13,6 +13,7 @@
   Raid squads and POI garrisons are themed the same way, based on where the base sits.
 - **Base raids & sabotage** — bandit squads periodically march on player bases (MP safehouses are detected directly; elsewhere the mod learns where you spend your time). Raiders smash barricades and player-built walls, shut down and damage generators, and steal from your containers before withdrawing.
 - **Fortified points of interest** — the militia claims a configurable number of known locations (fire stations, gas stations, warehouses, gun stores across Rosewood, Muldraugh, West Point, Riverside, March Ridge…). Claimed POIs get barricaded windows/doors, supply-stocked containers (food, ammo, meds, fuel, building materials) and a standing garrison. Clear the garrison and the supplies are yours.
+- **You can tell a stronghold is held before you walk into it** — there are no map markers; the world tells you instead. An outer ring roughly two and a half times the stronghold's radius accumulates the evidence of armed occupation: spent casings, bloodied rags, broken junk on the approach, camp clutter and ashes closer in. Camp noise — gunfire, hammering — carries about 70 tiles (and draws zombies, so a held POI is a dangerous neighbour). And the garrison challenges you at 15–30 tiles — *"That's far enough!"*, *"This place is taken. Walk away."* — before anyone opens fire at 15. Turn back, or plan an assault. Sandbox-toggleable if you want silent, unmarked strongholds.
 - **The living vs the dead** — all NPCs (bandits, survivors, traders) treat zombies as the real enemy. Zombies within 5 tiles pre-empt whatever an NPC was doing — even a firefight with you — and get put down with the NPC's actual weapon (gunfire draws more zombies in, so it escalates). Zombies hurt NPCs back: adjacent zombies claw and **grab** them, with player-style flinch and held-struggle reactions, and can kill them. The overwhelm rule is 1 living NPC per 4 zombies within a 5-tile radius: worse odds and they break off and run from the mob — except the rare last-stander (~5% of civilians, ~10% of thugs, ~15% of militia) who plants their feet and fights to the end.
 - **Doors & combination locks** — bandits can get through closed doors, never silently: an unlocked door takes ~3 seconds (sandbox-tunable) of audible handle-rattling before it opens, so anyone inside gets a warning. Your counter is a **combination lock**: attach a vanilla combination padlock to any door (right-click), and bandits can't open it — a bandit in pursuit or on a raid has to *break the door down*, and bashing works against the door's actual durability: each swing deals tier-based damage (militia hit hardest, half again more with an axe or sledgehammer in hand), so a flimsy interior door falls in seconds while a metal or high-level-carpentry door takes *much* longer — and after ~90 seconds of futile hammering the bandit gives up. Partial damage persists, every bash is loud enough to warn the whole street and draw zombies, and wandering bandits just give up and go around. The lock gives **quick entry to its owner and everyone in the owner's clan** (MP faction) via a right-click "Open/Close (combination)" option, while everyone else is locked out. Owners/clanmates can remove the lock and get the padlock back; a smashed door takes the lock with it.
 - **Scavenging** — NPCs loot buildings for supplies and equipment as they travel. They take the valuables (weapons, ammo, food, meds) and leave the evidence: low-value items stay in the container and a piece or two ends up scattered on the floor, so a half-emptied cupboard with junk around it tells you someone living has been through. Looted spots are skipped for a few in-game days, kill a scavenger and their haul drops with them, and traders convert what they find into sale stock — so trader inventories genuinely restock from the world. Player bases are never quietly scavenged; only raids touch your stuff. Sandbox-toggleable.
@@ -79,6 +80,7 @@ clients.
 | Bandit door-opening delay | 3s | Audible rattling before an unlocked door opens |
 | NPC scavenging | on | NPCs loot buildings, leaving low-value evidence |
 | NPC vehicles | on | Claimed vehicles, trunk hauling, raid trucks |
+| Signs of bandit-held POIs | on | Approach evidence, camp noise, challenge shouts |
 
 ## Code layout
 
@@ -160,6 +162,12 @@ Non-admin requests are dropped and logged.
   item ids (`Base.GardenFork`, `Base.WoodAxe`…) should be verified against
   42.20's scripts if a specific archetype spawns in default clothes or
   bare-handed.
+- POI approach decoration filters its item ids against what the build
+  actually ships (`ScriptManager:getItem`), so an unknown id is skipped
+  rather than erroring — but if a whole pool is missing, that cue quietly
+  disappears; `[BNS]` logs which pool came up empty. Blood splatter and
+  positional camp audio are attempted and degrade silently if 42.20's
+  `addBlood` / `PlayWorldSound` signatures differ.
 - NPC "driving" is park-and-dismount plus fast off-screen travel — zombie
   shells can't run real vehicle physics, so you'll never see one steering.
   The vehicle APIs used (`getPartById("TruckBed")`, `addVehicleDebug`,

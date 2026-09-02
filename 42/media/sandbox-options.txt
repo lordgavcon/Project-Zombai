@@ -89,3 +89,9 @@ option BNS.NPCVehiclesEnabled
 	type = boolean, default = true,
 	page = BNS, translation = BNS_NPCVehiclesEnabled,
 }
+
+option BNS.POISignsEnabled
+{
+	type = boolean, default = true,
+	page = BNS, translation = BNS_POISignsEnabled,
+}

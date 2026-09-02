@@ -261,6 +261,11 @@ end
 BNS.Programs[BNS.Program.DEFEND] = function(zombie, brain, ctx)
     local home = brain.home
     if not home then brain.program = BNS.Program.WANDER return end
+    -- Call out to anyone on the approach before it comes to shooting:
+    -- the player's chance to realise the place is held and turn back.
+    if BNS.Signs and ctx.player and ctx.dist >= 15 and ctx.dist <= 30 then
+        BNS.Signs.challenge(zombie, brain)
+    end
     -- Engage players who come within the perimeter.
     if ctx.player and ctx.dist < 15 and noticesPlayer(zombie, ctx) then
         brain.program = BNS.Program.ATTACK

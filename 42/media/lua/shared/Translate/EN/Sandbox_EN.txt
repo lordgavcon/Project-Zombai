@@ -43,6 +43,9 @@ Sandbox_EN = {
 	Sandbox_BNS_ScavengingEnabled = "NPC scavenging",
 	Sandbox_BNS_ScavengingEnabled_tooltip = "Wandering NPCs loot buildings for supplies and equipment, taking the valuables and leaving low-value items behind (some scattered on the floor as evidence). Player bases are never scavenged - only raids target those.",
 
+	Sandbox_BNS_POISignsEnabled = "Signs of bandit-held POIs",
+	Sandbox_BNS_POISignsEnabled_tooltip = "Bandit strongholds show themselves through the world instead of a map marker: defenders challenge you before shooting, camp noise carries, and an outer ring of spent casings, bloodied rags and junk builds up as you approach. Turn off for silent, unmarked strongholds.",
+
 	Sandbox_BNS_NPCVehiclesEnabled = "NPC vehicles",
 	Sandbox_BNS_NPCVehiclesEnabled_tooltip = "NPCs claim parked vehicles, haul scavenged loot into their trunks, and travel with them (fast off-screen travel; near players they park and dismount). About half of raids arrive with a truck that carries the stolen goods. Vehicles parked at player bases are never claimed.",
 }

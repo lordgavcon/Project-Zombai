@@ -65,6 +65,7 @@ function BNS.Options()
         doorDelay        = BNS.SV("DoorOpenDelay", 3),
         scavenging       = BNS.SV("ScavengingEnabled", true),
         vehicles         = BNS.SV("NPCVehiclesEnabled", true),
+        poiSigns         = BNS.SV("POISignsEnabled", true),
     }
 end
 

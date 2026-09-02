@@ -465,6 +465,14 @@ BNS.Debug.Scenarios = {
         watch = "nearest point of interest gets a militia garrison and supplies",
         run = function(player) BNS.Debug.claimPOI(player) end,
     },
+    poisigns = {
+        label = "POI in-world cues",
+        watch = "casings and rags on the approach, camp noise, a shouted challenge before anyone fires",
+        run = function(player)
+            BNS.Debug.setOption(player, { name = "POISignsEnabled", value = true })
+            BNS.Debug.claimPOI(player)
+        end,
+    },
 }
 
 function BNS.Debug.runScenario(player, args)

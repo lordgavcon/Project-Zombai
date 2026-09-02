@@ -37,6 +37,33 @@ end
 
 Events.OnPostUIDraw.Add(renderSpeech)
 
+-- Camp noise carrying from a bandit-held POI. Played at the POI's own
+-- square so it reads as distant; if this build has no world-sound call,
+-- it is only played when close enough that a flat sound isn't confusing.
+local AMBIENCE_SOUNDS = {
+    gunshot   = "9mmShot",
+    shotgun   = "ShotgunShot",
+    hammering = "Hammering",
+}
+
+function BNS.Client.playAmbience(args)
+    local player = getSpecificPlayer(0)
+    if not player or not args then return end
+    local d = BNS.dist(player:getX(), player:getY(), args.x, args.y)
+    if d > 80 then return end
+    local sound = AMBIENCE_SOUNDS[args.kind] or AMBIENCE_SOUNDS.gunshot
+    local sq = getCell() and getCell():getGridSquare(args.x, args.y, 0) or nil
+    local played = false
+    if sq and getSoundManager then
+        played = pcall(function()
+            getSoundManager():PlayWorldSound(sound, sq, 0, 30, 1.0, true)
+        end)
+    end
+    if not played and d < 30 then
+        pcall(function() player:playSound(sound) end)
+    end
+end
+
 -- Server command dispatch ------------------------------------------------
 
 function BNS.Client.onServerCommand(module, command, args)
@@ -68,6 +95,9 @@ function BNS.Client.onServerCommand(module, command, args)
         if player and not args.ok then
             player:setHaloNote(getText("UI_BNS_TradeRejected"), 255, 200, 100, 300)
         end
+
+    elseif command == "poiAmbience" then
+        BNS.Client.playAmbience(args)
 
     elseif command == "debugSnapshot" then
         if BNS.DebugUI then BNS.DebugUI.onSnapshot(args) end

@@ -17,6 +17,7 @@ require "BNS/BNS_Loadouts"
 require "BNS/BNS_Archetypes"
 require "BNS/BNS_Persistence"
 require "BNS/BNS_Spawner"
+require "BNS/BNS_Signs"
 
 BNS.Bases = {}
 
@@ -70,12 +71,20 @@ end
 
 -- Lazy fortification ----------------------------------------------------
 
+-- Which claimed POI owns this square, and how close in: "core" is the
+-- fortified stronghold itself, "approach" the wider ring that only ever
+-- gets scattered evidence (never barricades or supplies).
 local function baseForSquare(x, y)
     local state = BNS.Persistence.getState()
+    local outer, outerZone = nil, nil
     for _, base in pairs(state.bases) do
-        if BNS.dist(x, y, base.x, base.y) <= base.radius then return base end
+        local d = BNS.dist(x, y, base.x, base.y)
+        if d <= base.radius then return base, "core" end
+        if not outer and d <= base.radius * BNS.Signs.APPROACH_MULT then
+            outer, outerZone = base, "approach"
+        end
     end
-    return nil
+    return outer, outerZone
 end
 
 local function barricadeObject(square, obj, player0)
@@ -110,16 +119,22 @@ end
 
 function BNS.Bases.onLoadGridsquare(square)
     if not square then return end
-    local base = baseForSquare(square:getX(), square:getY())
+    local base, zone = baseForSquare(square:getX(), square:getY())
     if not base then return end
     local key = square:getX() .. "_" .. square:getY() .. "_" .. square:getZ()
+    base.stockedSquares = base.stockedSquares or {}
     if base.stockedSquares[key] then return end
     base.stockedSquares[key] = true
 
-    for i = 0, square:getObjects():size() - 1 do
-        barricadeObject(square, square:getObjects():get(i))
+    -- Only the stronghold itself is fortified and stocked.
+    if zone == "core" then
+        for i = 0, square:getObjects():size() - 1 do
+            barricadeObject(square, square:getObjects():get(i))
+        end
+        stockContainers(square, base)
     end
-    stockContainers(square, base)
+    -- Both rings show that someone lives here.
+    BNS.Signs.decorateSquare(square, base, zone)
 end
 
 Events.LoadGridsquare.Add(BNS.Bases.onLoadGridsquare)
