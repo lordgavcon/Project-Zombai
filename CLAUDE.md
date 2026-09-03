@@ -21,9 +21,16 @@ See README.md for the feature list and the code-layout map. Key facts:
   mirroring it, fed by `BNS_Visual.lua` (clients cannot read a puppet's
   brain — mod data does not replicate — so the server sends id, online id,
   position, gait, weapon and appearance). Two invariants: **never draw a
-  proxy over a visible puppet** (prove hiding works first, else disable the
-  layer), and **every engine call in that layer is `pcall`-guarded** with a
-  clean fallback to shell rendering.
+  proxy over a visible puppet** (prove hiding works first — a `pcall` that
+  merely does not error proves nothing, since alpha is re-driven each frame —
+  else disable the layer), and **every engine call in that layer is
+  `pcall`-guarded** with a clean fallback to shell rendering.
+- Appearance does *not* depend on proxies: `BNS_Look.lua` restyles the shell
+  itself (living skin, no blood/wounds, clean clothing) so NPCs look human
+  even where player bodies are unavailable. Keep those two concerns separate.
+- When something in this layer doesn't work in-game, extend
+  `BNS.Body.probe()` rather than guessing: it prints a pass/fail line per
+  pipeline step, including whether the server's snapshots arrive at all.
 - Client code (`42/media/lua/client/BNS/`) only renders speech/UI and sends
   commands; the server validates everything (trades, locks).
 - The `BNS` Lua namespace and `BNS_*` file names are internal and kept from

@@ -26,6 +26,8 @@ BNS.Body.proxies = {}     -- npc id -> { proxy, row, tx, ty, weapon }
 BNS.Body.supported = nil  -- nil = untested, true/false once known
 BNS.Body.hideFn = nil     -- the puppet-hiding call that worked here
 BNS.Body.lastError = nil
+BNS.Body.stats = { snapshots = 0, rows = 0, lastSnapshotTick = -1, ticks = 0 }
+BNS.Body.hideVerified = nil -- true / false / nil (build gives us no way to check)
 
 local LERP = 0.35 -- how fast a proxy catches up to its puppet per tick
 
@@ -75,9 +77,19 @@ local function enabled()
 end
 
 local function disable(reason)
+    if BNS.Body.supported == false then return end
     BNS.Body.supported = false
     BNS.Body.lastError = reason
-    BNS.log("player bodies unavailable (" .. tostring(reason) .. "); using shell rendering")
+    BNS.log("player bodies unavailable (" .. tostring(reason) .. "); using restyled shells")
+    -- Say it on screen once: a silent fallback is indistinguishable from
+    -- the feature simply not working, which is exactly what happened.
+    local player = getSpecificPlayer(0)
+    if player then
+        pcall(function()
+            player:setHaloNote("Project Zombai: player bodies unavailable - "
+                .. tostring(reason), 255, 180, 80, 400)
+        end)
+    end
     BNS.Body.clearAll()
 end
 
@@ -85,21 +97,60 @@ end
 
 -- Clients cannot read a puppet's brain, so NPCs are matched by the
 -- online id the server sends with each row.
-function BNS.Body.findPuppet(oid)
+-- Online ids are unreliable in single player (often -1 for every
+-- zombie), so try the strongest match first: in SP the client shares the
+-- process and can read the brain straight from mod data.
+function BNS.Body.findPuppet(oid, id, x, y)
     local cell = getCell()
     local list = cell and cell:getZombieList() or nil
-    if not list or not oid then return nil end
-    for i = 0, list:size() - 1 do
-        local z = list:get(i)
-        if z:getOnlineID() == oid then return z end
+    if not list then return nil, "no cell" end
+
+    if id then
+        for i = 0, list:size() - 1 do
+            local z = list:get(i)
+            local ok, brain = pcall(function() return BNS.brain(z) end)
+            if ok and brain and brain.id == id then return z, "modData" end
+        end
     end
-    return nil
+    if oid and oid ~= -1 then
+        for i = 0, list:size() - 1 do
+            local z = list:get(i)
+            if z:getOnlineID() == oid then return z, "onlineId" end
+        end
+    end
+    if x and y then
+        local best, bestD = nil, 2.0
+        for i = 0, list:size() - 1 do
+            local z = list:get(i)
+            local d = BNS.dist(x, y, z:getX(), z:getY())
+            if d < bestD then best, bestD = z, d end
+        end
+        if best then return best, "position" end
+    end
+    return nil, "not found"
 end
 
 -- Hide the puppet, learning which call this build supports. Returns
 -- false if none of them work, which disables the whole layer.
+-- Did the puppet actually become invisible? Returns true/false, or nil
+-- when this build gives us no way to check.
+function BNS.Body.verifyHidden(zombie)
+    if zombie.getAlpha then
+        local ok, alpha = pcall(function() return zombie:getAlpha() end)
+        if ok and type(alpha) == "number" then return alpha <= 0.05 end
+    end
+    if zombie.isInvisible then
+        local ok, inv = pcall(function() return zombie:isInvisible() end)
+        if ok and type(inv) == "boolean" then return inv end
+    end
+    return nil
+end
+
+-- A call that merely does not error is not proof of anything: alpha in
+-- particular is re-driven by the engine every frame. Verify where the
+-- build lets us, and never claim success for a missing method.
 function BNS.Body.hidePuppet(zombie)
-    if not zombie then return true end
+    if not zombie then return false end -- no puppet, no proxy: never draw both
     if BNS.Body.hideFn then
         pcall(function() BNS.Body.hideFn.apply(zombie) end)
         return true
@@ -107,9 +158,14 @@ function BNS.Body.hidePuppet(zombie)
     for _, candidate in ipairs(BNS.Body.HideCandidates) do
         local ok = pcall(function() candidate.apply(zombie) end)
         if ok then
-            BNS.Body.hideFn = candidate
-            BNS.log("hiding puppets with " .. candidate.name)
-            return true
+            local hidden = BNS.Body.verifyHidden(zombie)
+            if hidden ~= false then
+                BNS.Body.hideFn = candidate
+                BNS.Body.hideVerified = hidden -- true, or nil when unverifiable
+                BNS.log("hiding puppets with " .. candidate.name
+                    .. (hidden == nil and " (unverified)" or " (verified)"))
+                return true
+            end
         end
     end
     return false
@@ -118,7 +174,11 @@ end
 -- Proxy construction ---------------------------------------------------------
 
 local function buildDescriptor(look)
+    if not SurvivorFactory or not SurvivorFactory.CreateSurvivor then
+        error("SurvivorFactory.CreateSurvivor is missing on this build", 0)
+    end
     local desc = SurvivorFactory.CreateSurvivor()
+    if not desc then error("CreateSurvivor returned nil", 0) end
     if not desc or not look then return desc end
     pcall(function() desc:setFemale(look.female == true) end)
     pcall(function()
@@ -150,12 +210,22 @@ end
 function BNS.Body.createProxy(row)
     local cell = getCell()
     if not cell then return nil end
-    local ok, proxy = pcall(function()
-        local desc = buildDescriptor(row.look)
+    -- Kept separate so the failure names the real culprit rather than
+    -- blaming IsoPlayer for a missing SurvivorFactory.
+    local okDesc, desc = pcall(buildDescriptor, row.look)
+    if not okDesc then
+        disable("descriptor: " .. tostring(desc))
+        return nil
+    end
+    if not IsoPlayer or not IsoPlayer.new then
+        disable("IsoPlayer.new is missing on this build")
+        return nil
+    end
+    local okProxy, proxy = pcall(function()
         return IsoPlayer.new(cell, desc, row.x, row.y, row.z or 0)
     end)
-    if not ok or not proxy then
-        disable("IsoPlayer.new failed")
+    if not okProxy or not proxy then
+        disable("IsoPlayer.new: " .. tostring(proxy))
         return nil
     end
     neutralise(proxy)
@@ -189,7 +259,13 @@ end
 -- Server messages ---------------------------------------------------------------
 
 function BNS.Body.onVisual(args)
-    if not enabled() or not args then return end
+    if not args then return end
+    -- Count every snapshot, even when the layer is off: the probe needs
+    -- to distinguish "the server never sent anything" from "we refused".
+    BNS.Body.stats.snapshots = BNS.Body.stats.snapshots + 1
+    BNS.Body.stats.rows = BNS.Body.stats.rows + #(args.rows or {})
+    BNS.Body.stats.lastSnapshotTick = BNS.Body.stats.ticks
+    if not enabled() then return end
     for _, row in ipairs(args.rows or {}) do
         BNS.Body.applyRow(row)
         if BNS.Body.supported == false then return end
@@ -201,17 +277,26 @@ end
 
 function BNS.Body.applyRow(row)
     local entry = BNS.Body.proxies[row.id]
+    local entryHow = nil
     if not entry then
         -- Prove we can hide the puppet before drawing anything on top of
         -- it: a player body over a visible zombie is worse than neither.
-        local puppet = BNS.Body.findPuppet(row.oid)
+        local puppet, how = BNS.Body.findPuppet(row.oid, row.id, row.x, row.y)
+        if not puppet then
+            -- The shell isn't loaded here yet; try again on a later
+            -- snapshot rather than disabling the whole layer.
+            return
+        end
+        entryHow = how
         if not BNS.Body.hidePuppet(puppet) then
-            disable("cannot hide puppets")
+            disable("cannot hide puppets (tried "
+                .. #BNS.Body.HideCandidates .. " methods)")
             return
         end
         local proxy = BNS.Body.createProxy(row)
         if not proxy then return end
-        entry = { proxy = proxy, row = {}, tx = row.x, ty = row.y, puppetOid = row.oid }
+        entry = { proxy = proxy, row = {}, tx = row.x, ty = row.y,
+                  puppetOid = row.oid, matchedBy = entryHow }
         BNS.Body.proxies[row.id] = entry
     end
 
@@ -219,10 +304,10 @@ function BNS.Body.applyRow(row)
     for key, value in pairs(row) do entry.row[key] = value end
     if row.x then entry.tx = row.x end
     if row.y then entry.ty = row.y end
-    if row.oid then
-        entry.puppetOid = row.oid
-        BNS.Body.hidePuppet(BNS.Body.findPuppet(row.oid))
-    end
+    if row.oid then entry.puppetOid = row.oid end
+    -- Keep re-asserting the hide: alpha is re-driven by the engine.
+    local puppet = BNS.Body.findPuppet(entry.puppetOid, row.id, entry.tx, entry.ty)
+    if puppet then BNS.Body.hidePuppet(puppet) end
     if row.weapon ~= nil or entry.weapon == nil then equip(entry, entry.row.weapon) end
     if row.anim then BNS.Body.applyAnim(entry, row.anim) end
     if row.dir then
@@ -285,6 +370,7 @@ end
 -- Smooth the 5Hz snapshots into continuous motion so proxies walk
 -- rather than teleport between updates.
 function BNS.Body.tick()
+    BNS.Body.stats.ticks = BNS.Body.stats.ticks + 1
     if BNS.Body.supported == false then return end
     for _, entry in pairs(BNS.Body.proxies) do
         local p = entry.proxy
@@ -346,4 +432,102 @@ function BNS.Body.labTest(action)
     end
     if tried == 0 then return false, "no proxy in range - spawn an NPC first" end
     return true, action .. " via " .. candidate.name .. " on " .. tried .. " proxy(s)"
+end
+
+-- Probe -------------------------------------------------------------------------------
+--
+-- "Bandits still look like zombies" is the same symptom whether the
+-- layer failed, never ran, or switched itself off — so this reports a
+-- pass/fail line for every step of the pipeline, and is the fastest way
+-- to turn a vague symptom into a specific missing engine call.
+
+local function mark(ok) return ok and "[ok]" or "[NO]" end
+
+function BNS.Body.probe()
+    local out = {}
+    local function add(line) table.insert(out, line) end
+
+    add("--- Project Zombai: player-body probe ---")
+
+    -- 1. Is the server even talking to us?
+    local st = BNS.Body.stats
+    local age = st.lastSnapshotTick >= 0 and (st.ticks - st.lastSnapshotTick) or -1
+    add(string.format("%s visual snapshots received: %d (%d rows)%s",
+        mark(st.snapshots > 0), st.snapshots, st.rows,
+        age >= 0 and (", last " .. age .. " ticks ago") or ", never"))
+    if st.snapshots == 0 then
+        add("     -> nothing is arriving from the server. Either no NPC is within")
+        add("        60 tiles, or the sandbox option 'Player bodies for NPCs' is off.")
+    end
+
+    -- 2. Character construction: the most likely thing missing on B42.
+    local hasFactory = SurvivorFactory ~= nil and SurvivorFactory.CreateSurvivor ~= nil
+    add(mark(hasFactory) .. " SurvivorFactory.CreateSurvivor exists")
+    local desc = nil
+    if hasFactory then
+        local ok, d = pcall(function() return SurvivorFactory.CreateSurvivor() end)
+        desc = ok and d or nil
+        add(mark(ok and d ~= nil) .. " CreateSurvivor() returns a descriptor"
+            .. ((not ok) and (" - " .. tostring(d)) or ""))
+    end
+
+    local hasIsoPlayer = IsoPlayer ~= nil and IsoPlayer.new ~= nil
+    add(mark(hasIsoPlayer) .. " IsoPlayer.new exists")
+    if hasIsoPlayer and desc then
+        local player = getSpecificPlayer(0)
+        local ok, made = pcall(function()
+            return IsoPlayer.new(getCell(), desc,
+                player and player:getX() or 0, player and player:getY() or 0,
+                player and player:getZ() or 0)
+        end)
+        add(mark(ok and made ~= nil) .. " IsoPlayer.new(cell, desc, x, y, z) constructs"
+            .. ((not ok) and (" - " .. tostring(made)) or ""))
+        if ok and made then
+            pcall(function() made:removeFromWorld() end)
+            pcall(function() made:removeFromSquare() end)
+        end
+    end
+
+    -- 3. Can we find and hide a puppet?
+    local cell = getCell()
+    local list = cell and cell:getZombieList() or nil
+    local npc, how = nil, nil
+    if list then
+        for i = 0, list:size() - 1 do
+            local z = list:get(i)
+            local ok, brain = pcall(function() return BNS.brain(z) end)
+            if ok and brain then npc, how = z, "modData" break end
+        end
+    end
+    if not npc then
+        for id, entry in pairs(BNS.Body.proxies) do
+            npc, how = BNS.Body.findPuppet(entry.puppetOid, id, entry.tx, entry.ty)
+            if npc then break end
+        end
+    end
+    add(mark(npc ~= nil) .. " found an NPC puppet to test"
+        .. (npc and (" (by " .. tostring(how) .. ")") or " - spawn a bandit first"))
+
+    if npc then
+        for _, candidate in ipairs(BNS.Body.HideCandidates) do
+            local ok = pcall(function() candidate.apply(npc) end)
+            local verified = ok and BNS.Body.verifyHidden(npc) or nil
+            add(string.format("%s hide via %s%s", mark(ok), candidate.name,
+                ok and (verified == true and " (verified invisible)"
+                    or (verified == false and " (call worked but still visible)"
+                    or " (cannot verify on this build)")) or ""))
+        end
+    end
+
+    -- 4. Where we ended up.
+    local n = 0
+    for _ in pairs(BNS.Body.proxies) do n = n + 1 end
+    add(string.format("state: %s, proxies %d, hiding %s",
+        BNS.Body.supported == false and ("DISABLED - " .. tostring(BNS.Body.lastError))
+            or (BNS.Body.supported == true and "enabled" or "not yet attempted"),
+        n, BNS.Body.hideFn and BNS.Body.hideFn.name or "untested"))
+    add("(shells are restyled to look alive either way - see the server's [BNS] log)")
+
+    for _, line in ipairs(out) do BNS.log(line) end
+    return out
 end

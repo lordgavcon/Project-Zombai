@@ -14,6 +14,7 @@ require "BNS/BNS_Loadouts"
 require "BNS/BNS_Archetypes"
 require "BNS/BNS_Persistence"
 require "BNS/BNS_Anim"
+require "BNS/BNS_Look"
 
 BNS.Spawner = {}
 
@@ -105,6 +106,8 @@ function BNS.Spawner.materialise(rec)
     rec.weapon = brain.weapon
     zombie:getModData().BNS = brain
     BNS.Anim.init(zombie, brain)
+    -- Stop it looking like a corpse: living skin, no blood, real hair.
+    BNS.Look.apply(zombie, brain)
     -- Vehicle owners get their ride placed back beside them.
     if BNS.Vehicles then BNS.Vehicles.onMaterialise(zombie, brain, rec) end
 

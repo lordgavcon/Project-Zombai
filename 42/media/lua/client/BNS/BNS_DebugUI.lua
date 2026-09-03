@@ -94,7 +94,7 @@ end
 function BNS.DebugUI.onResult(args)
     if instance and args and args.text then
         table.insert(instance.results, 1, args.text)
-        while #instance.results > 8 do table.remove(instance.results) end
+        while #instance.results > 40 do table.remove(instance.results) end
     end
 end
 
@@ -233,6 +233,13 @@ function BNS.DebugUI:createChildren()
             BNS.DebugUI.onResult({ text = action .. " -> " .. tostring(name) })
         end))
     end
+    table.insert(self.animButtons, addButton("PROBE", 110, 4, 1, function()
+        local report = BNS.Body.probe()
+        -- onResult prepends, so feed it backwards to read top-down.
+        for i = #report, 1, -1 do
+            BNS.DebugUI.onResult({ text = report[i] })
+        end
+    end))
     table.insert(self.animButtons, addButton("Reset bodies", 110, 4, 0, function()
         BNS.Body.clearAll()
         BNS.Body.supported = nil
@@ -388,6 +395,7 @@ function BNS.DebugUI:rebuildList()
 
     elseif self.tab == "Anim lab" then
         self.list:addItem("Bandits are drawn as player characters mirroring hidden shells.", {})
+        self.list:addItem("Not working? Press PROBE - it reports exactly which step fails.", {})
         self.list:addItem("If an action does nothing, cycle to the next candidate call.", {})
         self.list:addItem("", {})
         for _, line in ipairs(BNS.Body.labStatus()) do

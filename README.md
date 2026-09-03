@@ -45,8 +45,14 @@ sync (zombies already sync). Consequences you should know about:
   client. Attack *outcomes* are still simulated server-side (hit rolls,
   gunshot noise that draws zombies, body-part damage through `BodyDamage`).
   If a build cannot construct proxies or hide puppets, the layer switches
-  itself off and the shells render with the older AnimSet clip overlays in
-  `media/AnimSets/zombie/` — you never get both drawn at once.
+  itself off (saying so on screen and in the log) and you never get both
+  drawn at once.
+- **Shells are restyled to look alive regardless.** The appearance half
+  doesn't depend on proxies at all: every shell gets living skin from its
+  appearance seed, blood and dirt cleared, wounds healed and its clothing
+  cleaned up, re-asserted periodically because the engine re-rolls zombie
+  visuals. So bandits read as people even on a build where player bodies
+  can't be constructed.
 - NPCs read as zombies to some vanilla systems (e.g. kill counts), and the
   engine never makes real zombies attack them on their own — so the
   living-vs-dead fight is driven by the mod: NPCs damage zombie engine
@@ -110,7 +116,8 @@ clients.
                 BNS_Scavenge (looting + evidence) · BNS_Vehicles (claiming,
                 trunk hauling) · BNS_Commands (validated trade/talk) ·
                 BNS_Debug (gated debug commands) · BNS_Visual (what the
-                client-side player bodies need to draw) · BNS_Main (director:
+                client-side player bodies need to draw) · BNS_Look (restyles
+                shells into living people) · BNS_Main (director:
                 population, live/virtual boundary)
   client/BNS/   BNS_Client (server commands, floating speech) ·
                 BNS_Body (IsoPlayer proxies = what you actually see) ·
@@ -142,7 +149,7 @@ Debug panel*). Five tabs:
 | NPCs | Every NPC with program, health, archetype, distance and flags; select one to Go to / Bring here / Kill / cycle its program / give it a vehicle / swarm it with zombies. Also toggles the overlay |
 | Spawn | One click per archetype (farmer, city folk, thug, police, firefighter, ex-military) plus survivor and trader, 1–5 at a time as a squad; raid me, fortify a POI, drop a loot box, spawn a horde, clear all NPCs |
 | Scenarios | Ten one-click behaviour tests — warning shout, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |
-| Anim lab | Player-body status (active/disabled, which puppet-hiding call worked), and per-action buttons to fire and cycle the candidate engine calls for swing/shoot/hit/grabbed until the right one is found |
+| Anim lab | Player-body status, per-action buttons to fire and cycle the candidate engine calls for swing/shoot/hit/grabbed, and **PROBE** — a pass/fail line for every step of the pipeline (are snapshots arriving, does `SurvivorFactory` exist, does `IsoPlayer.new` construct, can a puppet be found and actually hidden), which is the fastest way to turn "bandits still look like zombies" into a specific missing call |
 | Log | The mod's own `[BNS]` event log, newest first, without tailing `console.txt` |
 
 The **overlay** (NPCs tab) is the main validation tool: it draws each NPC's current

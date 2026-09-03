@@ -18,6 +18,7 @@ require "BNS/BNS_Doors"
 require "BNS/BNS_Scavenge"
 require "BNS/BNS_Vehicles"
 require "BNS/BNS_Visual"
+require "BNS/BNS_Look"
 
 BNS.Brain = {}
 
@@ -48,6 +49,7 @@ local function updateNPC(zombie, brain)
         end
     end
     BNS.Anim.tick(zombie, brain)
+    BNS.Look.tick(zombie, brain)
     -- Held by a zombie: struggle in place, no moving or attacking until
     -- the grip breaks (the ~1/s threat scan below keeps applying the
     -- crowd's scratches while held).

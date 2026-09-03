@@ -53,7 +53,10 @@ local function makeShell(id, x, y, oid, opts)
     function z:getModData() return self.modData end
     function z:isDead() return false end
     if not opts.unhidable then
-        function z:setAlphaAndTarget(a) self.hidden = (a == 0) end
+        function z:setAlphaAndTarget(a) self.hidden = (a == 0) and not opts.stubbornAlpha end
+    end
+    if not opts.noGetter then
+        function z:getAlpha() return self.hidden and 0 or 1 end
     end
     table.insert(shells, z)
     return z
@@ -277,5 +280,108 @@ for _ = 1, 30 do
 end
 assert(math.abs(e6.proxy:getX() - 110) < 0.5, "converges on the puppet, got " .. e6.proxy:getX())
 print("interpolation OK")
+
+-- 10. No puppet found -> no proxy (never draw a body over a live zombie) ---------
+BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+shells = {}
+createdProxies = {}
+BNS.Body.onVisual({ rows = { { id = "ghost", oid = 999, x = 500, y = 500, z = 0, anim = "walk" } } })
+assert(#createdProxies == 0, "no puppet means no proxy")
+assert(BNS.Body.supported ~= false, "a missing puppet is transient, not a reason to disable")
+assert(BNS.Body.hidePuppet(nil) == false, "hidePuppet(nil) must refuse")
+print("missing puppet handled OK")
+
+-- 11. Puppet matching falls back mod data -> online id -> position -----------------
+shells = {}
+local byData = makeShell("m1", 10, 10, -1)
+local found, how = BNS.Body.findPuppet(-1, "m1", 10, 10)
+assert(found == byData and how == "modData", "mod data match wins (this is the SP case)")
+
+shells = {}
+local byOid = makeShell("other", 20, 20, 77)
+found, how = BNS.Body.findPuppet(77, "not-here", 999, 999)
+assert(found == byOid and how == "onlineId", "falls back to online id")
+
+shells = {}
+local byPos = makeShell("other2", 30, 30, -1)
+byPos.modData.BNS = nil
+found, how = BNS.Body.findPuppet(-1, "unknown", 30.5, 30.2)
+assert(found == byPos and how == "position", "falls back to position")
+
+found, how = BNS.Body.findPuppet(-1, "unknown", 900, 900)
+assert(found == nil, "nothing within range matches nothing")
+print("puppet matching fallbacks OK")
+
+-- 12. A hide call that "works" but leaves the zombie visible is rejected ------------
+BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+shells = {}
+createdProxies = {}
+local liar = makeShell("liar", 40, 40, 88, { stubbornAlpha = true })
+BNS.Body.onVisual({ rows = { { id = "liar", oid = 88, x = 40, y = 40, z = 0, anim = "walk" } } })
+assert(BNS.Body.supported == false, "unverified-visible puppet disables the layer")
+assert(#createdProxies == 0, "and no body is drawn over it")
+print("false-positive hiding rejected OK")
+
+-- 13. Unverifiable hiding is accepted (but flagged) ---------------------------------
+BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.hideVerified = nil
+BNS.Body.clearAll(); shells = {}; createdProxies = {}
+makeShell("nogetter", 50, 50, 99, { noGetter = true })
+BNS.Body.onVisual({ rows = { { id = "nogetter", oid = 99, x = 50, y = 50, z = 0, anim = "walk" } } })
+assert(#createdProxies == 1, "builds a proxy when hiding cannot be checked")
+assert(BNS.Body.hideVerified == nil, "and records that it is unverified")
+print("unverifiable hiding accepted + flagged OK")
+
+-- 14. Descriptor vs constructor failures are told apart -------------------------------
+local realFactory = SurvivorFactory
+BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+shells = {}; makeShell("d1", 60, 60, 101)
+SurvivorFactory = nil
+BNS.Body.onVisual({ rows = { { id = "d1", oid = 101, x = 60, y = 60, z = 0, anim = "idle" } } })
+assert(BNS.Body.supported == false, "missing factory disables")
+assert(tostring(BNS.Body.lastError):find("SurvivorFactory"),
+    "and names SurvivorFactory, not IsoPlayer: " .. tostring(BNS.Body.lastError))
+SurvivorFactory = realFactory
+
+BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+shells = {}; makeShell("d2", 70, 70, 102)
+proxyFailMode = true
+BNS.Body.onVisual({ rows = { { id = "d2", oid = 102, x = 70, y = 70, z = 0, anim = "idle" } } })
+assert(tostring(BNS.Body.lastError):find("IsoPlayer"),
+    "constructor failure names IsoPlayer: " .. tostring(BNS.Body.lastError))
+proxyFailMode = false
+print("failure attribution OK")
+
+-- 15. The probe reports a line per pipeline step ---------------------------------------
+BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+shells = {}; makeShell("p1", 80, 80, 111)
+BNS.Body.stats.snapshots = 3
+local report = BNS.Body.probe()
+local blob = table.concat(report, "\n")
+assert(blob:find("snapshots received"), "reports whether the server is talking to us")
+assert(blob:find("SurvivorFactory"), "reports character construction")
+assert(blob:find("IsoPlayer.new exists"), "reports the constructor")
+assert(blob:find("puppet"), "reports puppet lookup")
+assert(blob:find("state:"), "reports the resulting state")
+print("probe OK (" .. #report .. " lines)")
+
+-- 16. Living-look pass applies what the build supports, skips the rest ------------------
+local looked = { skin = false, blood = false, model = false }
+local shell = {
+    getHumanVisual = function() return {
+        setSkinTextureIndex = function() looked.skin = true end,
+        clearBlood = function() looked.blood = true end,
+        -- no clearDirt / hair / beard on this fake build
+    } end,
+    resetModelNextFrame = function() looked.model = true end,
+    getItemVisuals = function() return nil end,
+}
+require("BNS/BNS_Look")
+local applied = BNS.Look.apply(shell, { look = { skin = 2, hair = "Bob", beard = "Full" } })
+assert(looked.skin and looked.blood and looked.model, "supported operations ran")
+assert(applied >= 3, "counted what landed, got " .. tostring(applied))
+assert(BNS.Look.support["living skin"] == true, "records what works")
+assert(BNS.Look.support["clear dirt"] == false, "records what does not")
+assert(#BNS.Look.report() >= 6, "reports a line per operation")
+print("living-look pass OK (" .. applied .. " ops applied)")
 
 print("ALL TESTS PASSED")
