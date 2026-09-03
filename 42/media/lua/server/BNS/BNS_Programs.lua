@@ -31,13 +31,22 @@ end
 -- Movement --------------------------------------------------------------
 
 function BNS.Programs.walkTo(zombie, x, y, z, run)
-    if zombie.pathToLocationF then
-        zombie:pathToLocationF(x, y, z or 0)
-    elseif zombie.pathToLocation then
-        zombie:pathToLocation(math.floor(x), math.floor(y), z or 0)
+    local brain = BNS.brain(zombie)
+    -- Re-issuing the same destination every tick makes the engine restart
+    -- the path; only send it when the destination actually changes.
+    local same = brain and brain.pathX == x and brain.pathY == y
+        and brain.pathRun == (run == true)
+    if not same then
+        if zombie.pathToLocationF then
+            zombie:pathToLocationF(x, y, z or 0)
+        elseif zombie.pathToLocation then
+            zombie:pathToLocation(math.floor(x), math.floor(y), z or 0)
+        end
+        if brain then
+            brain.pathX, brain.pathY, brain.pathRun = x, y, run == true
+        end
     end
     if zombie.setRunning then zombie:setRunning(run == true) end
-    local brain = BNS.brain(zombie)
     if brain then BNS.Anim.set(zombie, brain, run and "run" or "walk") end
 end
 
@@ -46,7 +55,23 @@ end
 function BNS.Programs.stopMoving(zombie, brain, mode)
     if zombie.setRunning then zombie:setRunning(false) end
     if zombie.StopAllActionQueue then zombie:StopAllActionQueue() end
-    if brain then BNS.Anim.set(zombie, brain, mode or "idle") end
+    -- Cancelling the path is the part that matters: a shell keeps walking
+    -- to its last pathToLocation target forever otherwise, which is why
+    -- NPCs never stood still. Re-pathing onto its own square is the
+    -- fallback that works even where the clear calls don't exist.
+    if zombie.clearPath then pcall(function() zombie:clearPath() end) end
+    if zombie.setPath2 then pcall(function() zombie:setPath2(nil) end) end
+    if zombie.pathToLocationF then
+        pcall(function()
+            zombie:pathToLocationF(zombie:getX(), zombie:getY(), zombie:getZ())
+        end)
+    end
+    if zombie.setMoving then pcall(function() zombie:setMoving(false) end) end
+    if brain then
+        -- Forget the remembered path so the next walkTo re-issues it.
+        brain.pathX, brain.pathY, brain.pathRun = nil, nil, nil
+        BNS.Anim.set(zombie, brain, mode or "idle")
+    end
 end
 
 local function arrived(zombie, brain, dist)
@@ -65,10 +90,34 @@ end
 
 -- WANDER ----------------------------------------------------------------
 
+-- Wandering is a slow amble with pauses, not a forced march: on arriving
+-- somewhere an NPC usually stands around for a while before picking the
+-- next destination. Counted in full brain ticks (~6 per second).
+BNS.Programs.REST_CHANCE = 65
+BNS.Programs.REST_MIN = 60   -- ~10s
+BNS.Programs.REST_MAX = 300  -- ~50s
+
+-- Resting is only for quiet moments. "Quiet" means no zombie being
+-- tracked: a nearby *player* must not count, or NPCs would never stand
+-- still while you were watching them, which is the whole complaint.
+-- Bandits who notice you have already switched to APPROACH above.
+local function threatened(zombie, brain, ctx)
+    return BNS.ZombieThreat ~= nil and BNS.ZombieThreat.targets[brain.id] ~= nil
+end
+
 BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
     if brain.role == BNS.Role.BANDIT and noticesPlayer(zombie, ctx) then
         brain.program = BNS.Program.APPROACH
         return
+    end
+    -- Mid-rest: stand still and look around.
+    if brain.restUntil then
+        brain.restUntil = brain.restUntil - 1
+        if brain.restUntil > 0 and not threatened(zombie, brain, ctx) then
+            BNS.Programs.stopMoving(zombie, brain, "idle")
+            return
+        end
+        brain.restUntil = nil
     end
     -- Now and then, go loot a nearby building instead of drifting on.
     if BNS.Scavenge and ZombRand(400) == 0
@@ -80,8 +129,16 @@ BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
         BNS.Vehicles.tryClaim(zombie, brain)
     end
     if arrived(zombie, brain, 3) then
+        -- Arrived: usually take a breather before choosing somewhere new.
+        if not threatened(zombie, brain, ctx)
+                and ZombRand(100) < BNS.Programs.REST_CHANCE then
+            brain.restUntil = ZombRand(BNS.Programs.REST_MIN, BNS.Programs.REST_MAX)
+            brain.targetX, brain.targetY = nil, nil
+            BNS.Programs.stopMoving(zombie, brain, "idle")
+            return
+        end
         -- Pick a new destination: nearby drift, occasionally a long trek.
-        local reach = ZombRand(100) < 15 and 300 or 40
+        local reach = ZombRand(100) < 10 and 200 or 30
         brain.targetX = zombie:getX() + ZombRand(-reach, reach + 1)
         brain.targetY = zombie:getY() + ZombRand(-reach, reach + 1)
     end
@@ -300,10 +357,21 @@ end
 
 -- TRADE (traders/survivors idling near players) -------------------------
 
+-- A trader you cannot catch is no use, so they plant themselves as soon
+-- as a customer is in reach and turn to face them. Survivors are less
+-- obliging and only stop once you are right beside them.
+BNS.Programs.TRADER_STOP_DIST = 5
+BNS.Programs.SURVIVOR_STOP_DIST = 3
+
 BNS.Programs[BNS.Program.TRADE] = function(zombie, brain, ctx)
-    -- Traders stand still while a customer is close, else wander slowly.
-    if ctx.player and ctx.dist < 6 then
-        if zombie.StopAllActionQueue then zombie:StopAllActionQueue() end
+    local stopDist = (brain.role == BNS.Role.TRADER)
+        and BNS.Programs.TRADER_STOP_DIST or BNS.Programs.SURVIVOR_STOP_DIST
+    if ctx.player and ctx.dist < stopDist then
+        BNS.Programs.stopMoving(zombie, brain, "idle")
+        brain.restUntil = nil -- waiting on the customer, not resting
+        if zombie.faceThisObject then
+            pcall(function() zombie:faceThisObject(ctx.player) end)
+        end
         return
     end
     BNS.Programs[BNS.Program.WANDER](zombie, brain, ctx)
