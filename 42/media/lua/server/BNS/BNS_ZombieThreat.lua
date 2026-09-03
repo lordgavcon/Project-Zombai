@@ -139,6 +139,15 @@ function BNS.ZombieThreat.apply(zombie, brain, verdict, nearest, centroid)
     BNS.ZombieThreat.targets[brain.id] = nearest and nearest.obj or nil
 
     if verdict == "flee" then
+        -- Already running: let the timer finish. Restarting it on every
+        -- scan (and the scan lures the horde along behind them) is why
+        -- they used to flee forever.
+        if brain.program == BNS.Program.FLEE then return end
+        -- Just finished a flee? They are cornered now: fight rather than
+        -- bolt again the instant the odds are still bad.
+        if brain.fleeCooldown and brain.fleeCooldown > 0 then
+            brain.standGround = true
+        end
         -- Decide once per threat episode whether this one is a stander.
         if brain.standGround == nil then
             brain.standGround = ZombRand(100) < (STAND_CHANCE[brain.tier] or 5)
@@ -150,7 +159,7 @@ function BNS.ZombieThreat.apply(zombie, brain, verdict, nearest, centroid)
         if not brain.standGround then
             brain.resume = nil
             brain.program = BNS.Program.FLEE
-            brain.fleeUntil = 600
+            brain.fleeUntil = BNS.Programs.FLEE_TICKS
             brain.fleeFrom = centroid
             brain.warned = nil
             brain.warnTimer = nil
@@ -178,17 +187,20 @@ BNS.Programs[BNS.Program.FIGHTZ] = function(zombie, brain, ctx)
     end
     local w = brain.weapon or {}
     local d = BNS.dist(zombie:getX(), zombie:getY(), target:getX(), target:getY())
+    -- Close at a run, or plant and swing -- never swinging mid-sprint.
     if w.gun then
         if d > w.range then
             BNS.Programs.walkTo(zombie, target:getX(), target:getY(), target:getZ(), true)
         else
-            BNS.Anim.set(zombie, brain, "aim")
+            BNS.Programs.stopMoving(zombie, brain, "aim")
+            BNS.Combat.attackZombie(zombie, brain, target)
         end
-        BNS.Combat.attackZombie(zombie, brain, target)
     else
         if d > (w.range or 1.3) then
             BNS.Programs.walkTo(zombie, target:getX(), target:getY(), target:getZ(), true)
+        else
+            BNS.Programs.stopMoving(zombie, brain, "idle")
+            BNS.Combat.attackZombie(zombie, brain, target)
         end
-        BNS.Combat.attackZombie(zombie, brain, target)
     end
 end

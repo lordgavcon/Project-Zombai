@@ -169,4 +169,90 @@ BNS.Programs[BNS.Program.FIGHTZ](fighter, fb, { dist = 999 })
 assert(fighter.pathedTo, "FIGHTZ paths toward its zombie target")
 print("FIGHTZ program OK")
 
+-- 7. Fleeing is short and ends in a stand ---------------------------------
+-- (regression: apply() used to reset fleeUntil on every ~1/s scan, and the
+-- scan lures the horde along behind the NPC, so they fled forever)
+local runner = makeZ(0, 0, { brain = { id = "f1", role = "bandit", tier = BNS.Tier.THUG,
+    program = BNS.Program.WANDER, health = 1.0 } })
+local fb = runner:getModData().BNS
+fakeCell.zombies = { runner }
+for i = 1, 9 do table.insert(fakeCell.zombies, makeZ(1 + i * 0.1, 0)) end
+
+local verdict = BNS.ZombieThreat.assess(0, 0, zlist(9), 1)
+assert(verdict == "flee", "9 zombies vs 1 is a flee")
+fb.standGround = false
+BNS.ZombieThreat.apply(runner, fb, "flee", { obj = fakeCell.zombies[2] }, { x = 5, y = 0 })
+assert(fb.program == BNS.Program.FLEE, "enters FLEE")
+local firstTimer = fb.fleeUntil
+assert(firstTimer == BNS.Programs.FLEE_TICKS, "flee is time-boxed, got " .. tostring(firstTimer))
+
+-- a later scan while still fleeing must NOT restart the countdown
+fb.fleeUntil = firstTimer - 10
+BNS.ZombieThreat.apply(runner, fb, "flee", { obj = fakeCell.zombies[2] }, { x = 5, y = 0 })
+assert(fb.fleeUntil == firstTimer - 10, "the flee timer is never restarted mid-flight")
+
+-- run it down: they stop, and a cooldown starts
+local ticks = 0
+while fb.program == BNS.Program.FLEE and ticks < 500 do
+    BNS.Programs[BNS.Program.FLEE](runner, fb, { player = nil, dist = 999 })
+    ticks = ticks + 1
+end
+assert(ticks == firstTimer - 10, "flee lasts exactly its remaining ticks, got " .. ticks)
+assert(fb.program == BNS.Program.WANDER, "stops running")
+assert(fb.fleeCooldown and fb.fleeCooldown > 0, "a stand-your-ground window opens")
+
+-- still outnumbered, but now they turn and fight instead of bolting again
+BNS.ZombieThreat.apply(runner, fb, "flee", { obj = fakeCell.zombies[2] }, { x = 5, y = 0 })
+assert(fb.program == BNS.Program.FIGHTZ,
+    "after fleeing they stand and fight, got " .. tostring(fb.program))
+assert(fb.standGround == true, "committed to the fight")
+
+-- and once the area is clear the commitment resets for next time
+BNS.ZombieThreat.apply(runner, fb, "clear", nil, nil)
+assert(fb.standGround == nil, "next threat episode re-rolls")
+print("flee is bounded and ends in a stand OK (" .. ticks .. " ticks)")
+
+-- 8. No attacking at a dead sprint ------------------------------------------
+local sprinter = makeZ(0, 0, { brain = { id = "s1", tier = BNS.Tier.THUG, health = 1.0 } })
+local sb = sprinter:getModData().BNS
+sb.weapon = { item = "Base.Axe", dmg = 0.26, range = 1.3, gun = false }
+sb.warned = true
+local prey = makeZ(1, 0)
+sb.animMode = "run"
+sb.attackTimer = 0
+BNS.Combat.attackZombie(sprinter, sb, prey)
+assert(prey.health == 2.0, "no swing while running")
+assert(not BNS.Combat.canAttack(sb), "canAttack says no while running")
+
+sb.animMode = "walk"
+sb.attackTimer = 0
+BNS.Combat.attackZombie(sprinter, sb, prey)
+assert(prey.health < 2.0, "walking is fine to swing from")
+assert(BNS.Combat.canAttack(sb), "canAttack allows walking")
+
+sb.animMode = "idle"
+assert(BNS.Combat.canAttack(sb), "and standing still")
+print("attacks gated on not running OK")
+
+-- 9. FIGHTZ closes at a run, then plants before swinging ---------------------
+local fighter = makeZ(0, 0, { brain = { id = "z9", tier = BNS.Tier.THUG, health = 1.0 } })
+local zb = fighter:getModData().BNS
+zb.weapon = { item = "Base.Axe", dmg = 0.26, range = 1.3, gun = false }
+zb.program = BNS.Program.FIGHTZ
+
+local farTarget = makeZ(10, 0)
+BNS.ZombieThreat.targets["z9"] = farTarget
+zb.attackTimer = 0
+BNS.Programs[BNS.Program.FIGHTZ](fighter, zb, { dist = 999 })
+assert(zb.animMode == "run", "closes at a run")
+assert(farTarget.health == 2.0, "and does not swing while closing")
+
+local closeTarget = makeZ(1, 0)
+BNS.ZombieThreat.targets["z9"] = closeTarget
+zb.attackTimer = 0
+BNS.Programs[BNS.Program.FIGHTZ](fighter, zb, { dist = 999 })
+assert(zb.animMode ~= "run", "stops on arrival, mode is " .. tostring(zb.animMode))
+assert(closeTarget.health < 2.0, "then swings")
+print("FIGHTZ close-then-plant OK")
+
 print("ALL TESTS PASSED")

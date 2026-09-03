@@ -87,6 +87,11 @@ local function updateNPC(zombie, brain)
         return
     end
 
+    -- The window after a flee where they hold their ground.
+    if brain.fleeCooldown and brain.fleeCooldown > 0 then
+        brain.fleeCooldown = brain.fleeCooldown - 1
+    end
+
     -- Zombie threat scan roughly once per second (full ticks are one
     -- per TICK_DIVIDER engine ticks).
     brain.threatTick = (brain.threatTick or ZombRand(6)) + 1

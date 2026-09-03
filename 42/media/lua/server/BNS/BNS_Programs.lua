@@ -41,6 +41,14 @@ function BNS.Programs.walkTo(zombie, x, y, z, run)
     if brain then BNS.Anim.set(zombie, brain, run and "run" or "walk") end
 end
 
+-- Come to a halt. Attacks are gated on not running, so a program that
+-- wants to fight has to actually stop first.
+function BNS.Programs.stopMoving(zombie, brain, mode)
+    if zombie.setRunning then zombie:setRunning(false) end
+    if zombie.StopAllActionQueue then zombie:StopAllActionQueue() end
+    if brain then BNS.Anim.set(zombie, brain, mode or "idle") end
+end
+
 local function arrived(zombie, brain, dist)
     if not brain.targetX then return true end
     return BNS.dist(zombie:getX(), zombie:getY(), brain.targetX, brain.targetY) < (dist or 2)
@@ -159,7 +167,7 @@ BNS.Programs[BNS.Program.ROB] = function(zombie, brain, ctx)
         brain.robTimer = nil
         brain.intent = nil
         brain.program = BNS.Program.FLEE
-        brain.fleeUntil = 600
+        brain.fleeUntil = BNS.Programs.FLEE_TICKS * 2
     end
 end
 
@@ -212,31 +220,39 @@ BNS.Programs[BNS.Program.ATTACK] = function(zombie, brain, ctx)
         end
         return
     end
+    -- Close the distance at a run, or stand and fight -- never both at
+    -- once. BNS.Combat refuses to attack while running.
     if w.gun then
-        -- Keep distance and shoot; close only if the player hides.
         if ctx.dist > w.range * 0.8 then
             BNS.Programs.walkTo(zombie, p:getX(), p:getY(), p:getZ(), true)
         else
-            BNS.Anim.set(zombie, brain, "aim")
+            BNS.Programs.stopMoving(zombie, brain, "aim")
+            BNS.Combat.attack(zombie, brain, p)
         end
-        BNS.Combat.attack(zombie, brain, p)
     else
         if ctx.dist > (w.range or 1.3) then
             BNS.Programs.walkTo(zombie, p:getX(), p:getY(), p:getZ(), true)
         else
-            BNS.Anim.set(zombie, brain, "idle")
+            BNS.Programs.stopMoving(zombie, brain, "idle")
+            BNS.Combat.attack(zombie, brain, p)
         end
-        BNS.Combat.attack(zombie, brain, p)
     end
 end
 
 -- FLEE ------------------------------------------------------------------
 
+-- Flee timers count full brain ticks (~6 per second), not engine ticks.
+BNS.Programs.FLEE_TICKS = 30     -- ~5s of running away
+BNS.Programs.FLEE_COOLDOWN = 60  -- ~10s afterwards where they will not flee again
+
 BNS.Programs[BNS.Program.FLEE] = function(zombie, brain, ctx)
-    brain.fleeUntil = (brain.fleeUntil or 600) - 1
+    brain.fleeUntil = (brain.fleeUntil or BNS.Programs.FLEE_TICKS) - 1
     if brain.fleeUntil <= 0 then
         brain.fleeUntil = nil
         brain.fleeFrom = nil
+        -- Running is over: hold a window where they stand their ground
+        -- instead of immediately bolting again.
+        brain.fleeCooldown = BNS.Programs.FLEE_COOLDOWN
         brain.program = BNS.Program.WANDER
         return
     end

@@ -220,7 +220,7 @@ function BNS.Debug.forceProgram(player, args)
     -- forced program starts clean.
     brain.warned, brain.warnTimer, brain.intent = nil, nil, nil
     brain.scav, brain.door, brain.raid = nil, nil, nil
-    if args.program == BNS.Program.FLEE then brain.fleeUntil = 600 end
+    if args.program == BNS.Program.FLEE then brain.fleeUntil = BNS.Programs.FLEE_TICKS end
     if args.program == BNS.Program.SCAVENGE and BNS.Scavenge then
         BNS.Scavenge.tryStart(shell, brain)
     end

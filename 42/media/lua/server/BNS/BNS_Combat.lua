@@ -14,6 +14,12 @@ require "BNS/BNS_Anim"
 
 BNS.Combat = {}
 
+-- Attacks only land while standing still or walking: nobody swings an
+-- axe or lines up a shot at a dead sprint. Programs must stop first.
+function BNS.Combat.canAttack(brain)
+    return brain ~= nil and brain.animMode ~= "run"
+end
+
 local BODY_PARTS = {
     BodyPartType.Torso_Upper, BodyPartType.Torso_Lower,
     BodyPartType.UpperArm_L, BodyPartType.UpperArm_R,
@@ -85,6 +91,7 @@ end
 function BNS.Combat.attack(zombie, brain, player)
     -- No damage before the warning shout has run its course.
     if not brain.warned then return end
+    if not BNS.Combat.canAttack(brain) then return end
     if brain.weapon and brain.weapon.gun then
         BNS.Combat.shoot(zombie, brain, player)
     else
@@ -97,6 +104,7 @@ end
 -- get warnings and don't dodge), and damage lands on the zombie's
 -- engine health so kills go through normal zombie death.
 function BNS.Combat.attackZombie(npc, brain, target)
+    if not BNS.Combat.canAttack(brain) then return end
     brain.attackTimer = (brain.attackTimer or 0) - 1
     if brain.attackTimer > 0 then return end
     local w = brain.weapon or {}
