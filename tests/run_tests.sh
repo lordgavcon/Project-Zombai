@@ -9,7 +9,7 @@ LUA_ROOT="$ROOT/42/media/lua"
 find "$ROOT" -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
 echo "syntax OK"
 
-for suite in test_archetypes test_zombiethreat test_doors test_scavenge test_vehicles test_debug test_signs; do
+for suite in test_archetypes test_zombiethreat test_doors test_scavenge test_vehicles test_debug test_signs test_body; do
     echo "== $suite =="
     lua5.1 "$ROOT/tests/$suite.lua" "$LUA_ROOT"
 done

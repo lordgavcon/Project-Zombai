@@ -39,6 +39,20 @@ function BNS.Spawner.rollWeapon(tier, archetype)
     return { item = m.item, dmg = m.dmg, range = m.range, gun = false }
 end
 
+-- A bandit's appearance is rolled once and stored on the record, so
+-- they look the same after despawning and identical to every client.
+-- (Hair/beard model names are left for the debug animation lab to pin
+-- down in-game; BNS.Loadouts.HairStyles is empty until then.)
+function BNS.Spawner.rollLook(rec, outfit)
+    return {
+        female = ZombRand(100) < 35,
+        skin = ZombRand(4),
+        hair = BNS.Loadouts.pick(BNS.Loadouts.HairStyles),
+        beard = BNS.Loadouts.pick(BNS.Loadouts.Beards),
+        outfit = outfit,
+    }
+end
+
 -- Shell creation --------------------------------------------------------
 
 local function pickOutfit(rec)
@@ -57,7 +71,8 @@ function BNS.Spawner.materialise(rec)
     local sq = getCell():getGridSquare(rec.x, rec.y, rec.z or 0)
     if not sq then return nil end
 
-    local outfit = pickOutfit(rec)
+    if not rec.look then rec.look = BNS.Spawner.rollLook(rec, pickOutfit(rec)) end
+    local outfit = rec.look.outfit or pickOutfit(rec)
     local zombies = addZombiesInOutfit(rec.x, rec.y, rec.z or 0, 1, outfit, 50)
     if not zombies or zombies:size() == 0 then return nil end
     local zombie = zombies:get(0)
@@ -83,6 +98,7 @@ function BNS.Spawner.materialise(rec)
         home = rec.home,
         stock = rec.stock,
         loot = rec.loot,
+        look = rec.look,
         cooldown = 0,
         speechCooldown = 0,
     }

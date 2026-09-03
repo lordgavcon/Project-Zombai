@@ -1,9 +1,9 @@
 --***********************************************************************
 -- Project Zombai — debug UI (client)
 --
--- Press F7 in debug mode (or as an MP admin) to open. Five tabs: World
+-- Press F7 in debug mode (or as an MP admin) to open. Six tabs: World
 -- state, live NPC list with per-NPC actions, spawn controls, one-click
--- behaviour scenarios, and the mod's event log.
+-- behaviour scenarios, the animation lab, and the mod's event log.
 --
 -- This window only *asks*: every button sends a command that the server
 -- re-validates in BNS_Debug.lua. The permission check here just avoids
@@ -15,13 +15,14 @@ require "ISUI/ISScrollingListBox"
 require "ISUI/ISButton"
 require "BNS/BNS_Core"
 require "BNS/BNS_Client"
+require "BNS/BNS_Body"
 
 BNS.DebugUI = ISCollapsableWindow:derive("BNS_DebugUI")
 
 local FONT_H = getTextManager():getFontHeight(UIFont.Small)
 local instance = nil
 
-local TABS = { "World", "NPCs", "Spawn", "Scenarios", "Log" }
+local TABS = { "World", "NPCs", "Spawn", "Scenarios", "Anim lab", "Log" }
 
 local SPAWN_BUTTONS = {
     { label = "Farmer",       archetype = "farmer" },
@@ -219,6 +220,26 @@ function BNS.DebugUI:createChildren()
         self:send("debugZombies", { count = 10 })
     end))
 
+    -- Animation lab: cycle and fire each candidate call in-game.
+    self.animButtons = {}
+    local actions = { "swing", "shoot", "hit", "grabbed" }
+    for i, action in ipairs(actions) do
+        table.insert(self.animButtons, addButton("Test " .. action, 110, i - 1, 0, function()
+            local ok, msg = BNS.Body.labTest(action)
+            BNS.DebugUI.onResult({ text = (ok and "" or "no-op: ") .. tostring(msg) })
+        end))
+        table.insert(self.animButtons, addButton("Next " .. action, 110, i - 1, 1, function()
+            local name = BNS.Body.labCycle(action)
+            BNS.DebugUI.onResult({ text = action .. " -> " .. tostring(name) })
+        end))
+    end
+    table.insert(self.animButtons, addButton("Reset bodies", 110, 4, 0, function()
+        BNS.Body.clearAll()
+        BNS.Body.supported = nil
+        BNS.Body.hideFn = nil
+        BNS.DebugUI.onResult({ text = "player bodies reset - they rebuild on the next update" })
+    end))
+
     -- Scenario buttons
     self.scenarioButtons = {}
     for i, sc in ipairs(SCENARIOS) do
@@ -274,6 +295,7 @@ function BNS.DebugUI:refreshButtons()
     show(self.npcButtons, self.tab == "NPCs")
     show(self.spawnButtons, self.tab == "Spawn")
     show(self.scenarioButtons, self.tab == "Scenarios")
+    show(self.animButtons, self.tab == "Anim lab")
 end
 
 -- Rows -------------------------------------------------------------------------
@@ -362,6 +384,18 @@ function BNS.DebugUI:rebuildList()
                 npc.name or "?", npc.archetype or npc.role, npc.program or "?",
                 math.floor((npc.health or 1) * 100), npc.dist, npc.loot, flags)
             self.list:addItem(text, { id = npc.id, colour = PROGRAM_COLOURS[npc.program] })
+        end
+
+    elseif self.tab == "Anim lab" then
+        self.list:addItem("Bandits are drawn as player characters mirroring hidden shells.", {})
+        self.list:addItem("If an action does nothing, cycle to the next candidate call.", {})
+        self.list:addItem("", {})
+        for _, line in ipairs(BNS.Body.labStatus()) do
+            self.list:addItem(line, {})
+        end
+        self.list:addItem("", {})
+        for _, line in ipairs(self.results) do
+            self.list:addItem("  " .. line, { colour = { 0.7, 1.0, 0.7 } })
         end
 
     elseif self.tab == "Log" then

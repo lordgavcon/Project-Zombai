@@ -11,6 +11,7 @@
 if isClient() then return end
 
 require "BNS/BNS_Core"
+require "BNS/BNS_Visual"
 
 BNS.Anim = {}
 
@@ -42,6 +43,9 @@ function BNS.Anim.pulse(zombie, brain, mode)
     brain.animPulse = 45 -- ~0.75s at 60 ticks/s
     brain.animMode = mode
     zombie:setVariable("BNSAnim", mode)
+    -- Player-body proxies need attacks the instant they happen, not on
+    -- the next snapshot.
+    if BNS.Visual then BNS.Visual.pulse(brain, mode) end
 end
 
 -- Called every engine tick from BNS_Brain so pulses expire on time.

@@ -14,13 +14,23 @@ See README.md for the feature list and the code-layout map. Key facts:
 - NPCs are **server-controlled zombie shells** (`IsoZombie` + a Lua brain in
   mod data). All AI runs in `42/media/lua/server/BNS/`; `lua/server` also
   loads in single player, so SP and MP share one code path.
+- **Puppet + proxy rendering.** The shell is the puppet: it paths, collides,
+  takes damage and replicates to MP clients for free — that replication is
+  the whole reason the shell design exists and must not be traded away.
+  What players see is a client-side `IsoPlayer` proxy (`BNS_Body.lua`)
+  mirroring it, fed by `BNS_Visual.lua` (clients cannot read a puppet's
+  brain — mod data does not replicate — so the server sends id, online id,
+  position, gait, weapon and appearance). Two invariants: **never draw a
+  proxy over a visible puppet** (prove hiding works first, else disable the
+  layer), and **every engine call in that layer is `pcall`-guarded** with a
+  clean fallback to shell rendering.
 - Client code (`42/media/lua/client/BNS/`) only renders speech/UI and sends
   commands; the server validates everything (trades, locks).
 - The `BNS` Lua namespace and `BNS_*` file names are internal and kept from
   the original project — do not mass-rename them.
-- Player animations come from AnimSet overlay XMLs in
-  `42/media/AnimSets/zombie/`, gated on `BNSNPC`/`BNSAnim` variables set by
-  `BNS_Anim.lua`.
+- The AnimSet overlay XMLs in `42/media/AnimSets/zombie/` (gated on
+  `BNSNPC`/`BNSAnim` set by `BNS_Anim.lua`) are now the *fallback* look, used
+  only when player-body proxies are off or unsupported.
 - Persistent NPC state lives in global mod data (`BNS_Persistence.lua`);
   never store Java object references in mod data — keep live refs in
   module-local tables (see `BNS.ZombieThreat.targets`).
@@ -52,6 +62,11 @@ draws each NPC's live program above their head. See README "Debug & testing".
 
 When adding a behaviour, add a Scenarios entry for it in `BNS.Debug.Scenarios`
 so it can be exercised in-game, alongside the offline suite.
+
+Engine names that cannot be checked offline (attack/aim variables, character
+hiding, hair models) belong in a *candidate list* driven by the debug panel's
+Anim lab rather than a single guess in the code — see `BNS.Body.ActionCandidates`.
+Once a candidate is confirmed in-game, make it the default.
 
 Two invariants worth keeping in mind when touching the debug code:
 - Every debug command must be gated server-side in `BNS.Debug.handle` — MP

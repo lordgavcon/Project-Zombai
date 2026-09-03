@@ -95,3 +95,9 @@ option BNS.POISignsEnabled
 	type = boolean, default = true,
 	page = BNS, translation = BNS_POISignsEnabled,
 }
+
+option BNS.PlayerBodiesEnabled
+{
+	type = boolean, default = true,
+	page = BNS, translation = BNS_PlayerBodiesEnabled,
+}

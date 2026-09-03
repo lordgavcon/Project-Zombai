@@ -32,13 +32,21 @@ stored in its mod data. That buys us the engine's real pathfinding
 (`pathToLocationF`) for natural navigation, and free multiplayer position
 sync (zombies already sync). Consequences you should know about:
 
-- NPCs play **player animation clips** (idle, walk, run, aim, melee swing,
-  pistol fire) through AnimSet overlay nodes in `media/AnimSets/zombie/`,
-  conditioned on `BNSNPC`/`BNSAnim` animation variables that the Lua brain
-  sets — zombies and players share a skeleton, so player clips apply
-  cleanly. Attack outcomes are still simulated server-side (hit rolls,
-  gunshot sounds and noise that attracts zombies, body-part damage through
-  `BodyDamage`); the animations are the visual layer on top.
+- **What you see is a player character, not a zombie.** The shell is a
+  *puppet*: hidden, but still doing the engine work — pathfinding,
+  collision, damage, and free multiplayer replication. Mirroring it on
+  each client is an `IsoPlayer` **proxy**, and because that proxy is a
+  real player character its animation comes from the player state machine
+  for free: it is handed the NPC's actual weapon, so a swing is that
+  weapon's own attack animation; it walks and runs with player gaits; it
+  aims and fires like a player; and it wears player skin, hair and
+  clothing. Appearance is rolled once per NPC and persisted, so a given
+  bandit looks the same every time you meet them and identical on every
+  client. Attack *outcomes* are still simulated server-side (hit rolls,
+  gunshot noise that draws zombies, body-part damage through `BodyDamage`).
+  If a build cannot construct proxies or hide puppets, the layer switches
+  itself off and the shells render with the older AnimSet clip overlays in
+  `media/AnimSets/zombie/` — you never get both drawn at once.
 - NPCs read as zombies to some vanilla systems (e.g. kill counts), and the
   engine never makes real zombies attack them on their own — so the
   living-vs-dead fight is driven by the mod: NPCs damage zombie engine
@@ -81,6 +89,7 @@ clients.
 | NPC scavenging | on | NPCs loot buildings, leaving low-value evidence |
 | NPC vehicles | on | Claimed vehicles, trunk hauling, raid trucks |
 | Signs of bandit-held POIs | on | Approach evidence, camp noise, challenge shouts |
+| Player bodies for NPCs | on | Draw NPCs as player characters, not shells |
 
 ## Code layout
 
@@ -100,9 +109,11 @@ clients.
                 · BNS_Doors / BNS_Locks (break-ins, combination locks) ·
                 BNS_Scavenge (looting + evidence) · BNS_Vehicles (claiming,
                 trunk hauling) · BNS_Commands (validated trade/talk) ·
-                BNS_Debug (gated debug commands) · BNS_Main (director:
+                BNS_Debug (gated debug commands) · BNS_Visual (what the
+                client-side player bodies need to draw) · BNS_Main (director:
                 population, live/virtual boundary)
   client/BNS/   BNS_Client (server commands, floating speech) ·
+                BNS_Body (IsoPlayer proxies = what you actually see) ·
                 BNS_ContextMenu (Talk/Trade) · BNS_TradeWindow (barter UI) ·
                 BNS_LockMenu (padlocks) · BNS_DebugUI (test panel) ·
                 BNS_DebugOverlay (NPC state above heads)
@@ -131,6 +142,7 @@ Debug panel*). Five tabs:
 | NPCs | Every NPC with program, health, archetype, distance and flags; select one to Go to / Bring here / Kill / cycle its program / give it a vehicle / swarm it with zombies. Also toggles the overlay |
 | Spawn | One click per archetype (farmer, city folk, thug, police, firefighter, ex-military) plus survivor and trader, 1–5 at a time as a squad; raid me, fortify a POI, drop a loot box, spawn a horde, clear all NPCs |
 | Scenarios | Ten one-click behaviour tests — warning shout, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |
+| Anim lab | Player-body status (active/disabled, which puppet-hiding call worked), and per-action buttons to fire and cycle the candidate engine calls for swing/shoot/hit/grabbed until the right one is found |
 | Log | The mod's own `[BNS]` event log, newest first, without tailing `console.txt` |
 
 The **overlay** (NPCs tab) is the main validation tool: it draws each NPC's current
@@ -148,9 +160,17 @@ Non-admin requests are dropped and logged.
   few calls (e.g. `setUseless`, `IsoBarricade.AddBarricadeToObject`,
   outfit names) may need renaming against the current javadocs. Everything
   is guarded where practical; check `console.txt` for `[BNS]` lines.
-- The `Bob_*` animation clip names in `media/AnimSets/zombie/*/bns_*.xml`
-  are best-known guesses; if NPCs still move like zombies in-game, correct
-  those names against the game's `media/anims_X/Bob/` clips first.
+- The player-body layer's engine calls (constructing an `IsoPlayer`, the
+  neutralising calls, hiding a puppet, and the attack/aim variables) are
+  informed guesses that cannot be verified outside the game — that is
+  exactly what the debug panel's **Anim lab** exists to settle: it reports
+  which puppet-hiding call worked and lets you cycle the candidates per
+  action until the model moves, so the winner can be pinned as default.
+  Hair and beard model names are left empty (`BNS.Loadouts.HairStyles`)
+  until identified in-game, so hair may currently differ between clients.
+- The fallback path's `Bob_*` clip names in `media/AnimSets/zombie/*/bns_*.xml`
+  are also best-known guesses; they only matter if player bodies are off or
+  unsupported.
 - Animation variables are set server-side; if they turn out not to sync to
   MP clients on 42.20, a client-side mirror pass fed by a periodic server
   broadcast is the planned fallback.

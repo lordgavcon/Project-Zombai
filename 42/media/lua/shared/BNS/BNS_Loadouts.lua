@@ -120,6 +120,11 @@ BNS.Loadouts.BarterValues = {
     ["Base.Bandage"]         = 4,
 }
 
+-- Hair and beard model names vary by build; the debug animation lab is
+-- how these get identified in-game. Empty means "let the engine pick".
+BNS.Loadouts.HairStyles = {}
+BNS.Loadouts.Beards = {}
+
 BNS.Loadouts.FirstNames = {
     "Ray", "Dale", "Earl", "Wade", "Cody", "June", "Darlene", "Tanya",
     "Marcus", "Otis", "Lena", "Ruth", "Hank", "Sal", "Vera", "Clyde",
