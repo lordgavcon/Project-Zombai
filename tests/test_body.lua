@@ -53,7 +53,10 @@ local function makeShell(id, x, y, oid, opts)
     function z:getModData() return self.modData end
     function z:isDead() return false end
     if not opts.unhidable then
-        function z:setAlphaAndTarget(a) self.hidden = (a == 0) and not opts.stubbornAlpha end
+        function z:setAlphaAndTarget(a)
+            self.hidden = (a == 0) and not opts.stubbornAlpha
+            if self.onHide then self.onHide() end
+        end
     end
     if not opts.noGetter then
         function z:getAlpha() return self.hidden and 0 or 1 end
@@ -61,6 +64,31 @@ local function makeShell(id, x, y, oid, opts)
     table.insert(shells, z)
     return z
 end
+-- Squares model moving-object membership, because "is the proxy actually
+-- registered with a square" is the difference between a player body and
+-- an invisible object the renderer never sees.
+local squares = {}
+function getSquare(x, y, z)
+    local key = math.floor(x) .. "," .. math.floor(y) .. "," .. (z or 0)
+    if not squares[key] then
+        local moving = {}
+        squares[key] = {
+            key = key,
+            getMovingObjects = function()
+                return {
+                    size = function() return #moving end,
+                    get = function(_, i) return moving[i + 1] end,
+                    add = function(_, o) table.insert(moving, o) end,
+                }
+            end,
+            _remove = function(o)
+                for i = #moving, 1, -1 do if moving[i] == o then table.remove(moving, i) end end
+            end,
+        }
+    end
+    return squares[key]
+end
+
 function getCell()
     return {
         getZombieList = function()
@@ -114,7 +142,17 @@ IsoPlayer = { new = function(cell, desc, x, y, z)
     function p:setInvisible() end
     function p:dressInNamedOutfit(o) self.outfit = o end
     function p:resetModelNextFrame() end
-    function p:removeFromWorld() self.removed = true; table.insert(removedProxies, self) end
+    function p:setCurrent(sq)
+        if self.square then self.square._remove(self) end
+        self.square = sq
+        if sq then sq:getMovingObjects():add(self) end
+    end
+    function p:getCurrentSquare() return self.square end
+    function p:removeFromWorld()
+        self.removed = true
+        if self.square then self.square._remove(self); self.square = nil end
+        table.insert(removedProxies, self)
+    end
     function p:removeFromSquare() end
     function p:playAnimation(a) self.lastAnim = a end
     function p:DoAttack() self.didAttack = true end
@@ -197,6 +235,12 @@ assert(entry and entry.proxy.prim and entry.proxy.prim.ft == "Base.Axe",
 assert(entry.proxy.desc.female == true, "appearance seed applied")
 assert(entry.proxy.outfit == "Farmer", "outfit applied")
 assert(entry.proxy.vars.bMoving == true and entry.proxy.vars.bRunning == false, "gait variables set")
+-- The proxy must be registered with a square, not merely constructed:
+-- IsoPlayer.new allocates a character the renderer never sees, which is
+-- why NPCs kept showing their zombie-animated shells.
+assert(BNS.Body.verifyAttached(entry.proxy),
+    "the proxy is registered with a square, not just constructed")
+assert(BNS.Body.attachVia, "and the probe can say which call did it")
 -- `supported` used to be set only on failure, so a working layer still
 -- reported "not yet attempted" -- indistinguishable from one that never
 -- ran, which is how a live layer got misread as broken.
@@ -223,11 +267,20 @@ shells = {}
 local stubborn = makeShell("n3", 100, 100, 33, { unhidable = true })
 BNS.Body.onVisual({ rows = { { id = "n3", oid = 33, x = 100, y = 100, z = 0, anim = "walk" } } })
 assert(BNS.Body.supported == false, "layer disables itself")
-assert(#createdProxies == 0, "no player body is drawn over a visible zombie")
+-- The proxy is now built and attached *before* hiding is attempted, so the
+-- invariant is that none survives -- not that none was ever constructed.
+for _, pr in ipairs(createdProxies) do
+    assert(pr.removed, "an unusable proxy is torn out of the world")
+    assert(not BNS.Body.verifyAttached(pr), "and is no longer registered with a square")
+end
+local live = 0
+for _ in pairs(BNS.Body.proxies) do live = live + 1 end
+assert(live == 0, "no player body is left drawn over a visible zombie")
 assert(not stubborn.hidden, "the shell stays visible and keeps rendering itself")
 -- and it stays off
+local builtSoFar = #createdProxies
 BNS.Body.onVisual({ rows = { { id = "n3", oid = 33, x = 101, y = 100 } } })
-assert(#createdProxies == 0, "the layer stays off once disabled")
+assert(#createdProxies == builtSoFar, "the layer stays off once disabled")
 print("fallback (unhidable puppet) OK")
 
 -- 7. Fallback contract: IsoPlayer construction fails --------------------------------
@@ -325,7 +378,12 @@ createdProxies = {}
 local liar = makeShell("liar", 40, 40, 88, { stubbornAlpha = true })
 BNS.Body.onVisual({ rows = { { id = "liar", oid = 88, x = 40, y = 40, z = 0, anim = "walk" } } })
 assert(BNS.Body.supported == false, "unverified-visible puppet disables the layer")
-assert(#createdProxies == 0, "and no body is drawn over it")
+local liveLiars = 0
+for _ in pairs(BNS.Body.proxies) do liveLiars = liveLiars + 1 end
+assert(liveLiars == 0, "and no body is left drawn over it")
+for _, pr in ipairs(createdProxies) do
+    assert(pr.removed, "any proxy built along the way is torn out again")
+end
 print("false-positive hiding rejected OK")
 
 -- 13. Unverifiable hiding is accepted (but flagged) ---------------------------------
@@ -505,6 +563,40 @@ BNS.Body.hideFn = nil
 assert(BNS.Body.hidePuppet(partialZombie), "hiding still succeeds via the available call")
 assert(called.alpha, "and used the one the build has")
 print("hide candidate availability OK")
+
+-- 23. Proxies migrate squares, and the hide is re-asserted every frame -----------------
+-- Two symptoms came from this: bodies that glide (moved by coordinate but
+-- still registered to the square they started on) and shells that flicker
+-- (the engine re-drives zombie alpha every frame, so hiding only when a
+-- 5Hz snapshot arrives lets them fade back in between updates).
+BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+shells = {}; createdProxies = {}
+local mover = makeShell("m1", 200, 200, 77)
+BNS.Body.onVisual({ rows = { { id = "m1", oid = 77, x = 200, y = 200, z = 0, anim = "walk" } } })
+local me = BNS.Body.proxies["m1"]
+assert(me, "proxy exists")
+assert(me.puppet == mover, "the puppet reference is cached for the per-frame pass")
+local startSquare = me.proxy:getCurrentSquare()
+
+-- walk it several squares away and run frames
+me.tx, me.ty = 208, 200
+for _ = 1, 60 do BNS.Body.tick() end
+local endSquare = me.proxy:getCurrentSquare()
+assert(endSquare ~= startSquare, "the proxy re-registers as it crosses squares")
+assert(BNS.Body.verifyAttached(me.proxy), "and stays registered with the square it is on")
+assert(math.abs(me.proxy:getX() - 208) < 0.5,
+    "it actually arrives, at " .. tostring(me.proxy:getX()))
+
+-- the engine fades the shell back in; every frame must push it back down
+mover.hidden = false
+mover.alpha = 1
+BNS.Body.tick()
+assert(mover.hidden, "one frame is enough to re-hide a shell the engine faded back in")
+local hidesPerFrame = 0
+mover.onHide = function() hidesPerFrame = hidesPerFrame + 1 end
+for _ = 1, 10 do BNS.Body.tick() end
+assert(hidesPerFrame == 10, "the hide is re-asserted every frame, got " .. hidesPerFrame)
+print("square migration + per-frame hide OK")
 
 
 print("ALL TESTS PASSED")

@@ -28,6 +28,7 @@ BNS.Body.hideFn = nil     -- the puppet-hiding call that worked here
 BNS.Body.lastError = nil
 BNS.Body.stats = { snapshots = 0, rows = 0, lastSnapshotTick = -1, ticks = 0 }
 BNS.Body.hideVerified = nil -- true / false / nil (build gives us no way to check)
+BNS.Body.attachVia = nil  -- which registration call put proxies in the world
 
 local LERP = 0.35 -- how fast a proxy catches up to its puppet per tick
 
@@ -222,6 +223,84 @@ local function neutralise(proxy)
     end
 end
 
+-- Getting the constructed character *into the world* is the step that was
+-- missing entirely. IsoPlayer.new allocates a character but does not
+-- register it with a square, so nothing ever drew or updated it -- which
+-- is why NPCs kept rendering as their shells, with zombie animations,
+-- even though the probe reported proxies alive.
+--
+-- Which registration call this build wants cannot be checked offline, so
+-- they are candidates, applied in order until membership actually
+-- verifies. `available` keeps us from calling a method the build lacks.
+BNS.Body.AttachCandidates = {
+    {
+        name = "setCurrent(square)",
+        available = function(p) return p.setCurrent ~= nil end,
+        apply = function(p, sq) p:setCurrent(sq) end,
+    },
+    {
+        name = "square:addMovingObject(proxy)",
+        available = function(p, sq) return sq.addMovingObject ~= nil end,
+        apply = function(p, sq) sq:addMovingObject(p) end,
+    },
+    {
+        name = "square:getMovingObjects():add(proxy)",
+        available = function(p, sq) return sq.getMovingObjects ~= nil end,
+        apply = function(p, sq) sq:getMovingObjects():add(p) end,
+    },
+    {
+        name = "cell:addToProcessIsoObject(proxy)",
+        available = function(p, sq, cell) return cell.addToProcessIsoObject ~= nil end,
+        apply = function(p, sq, cell) cell:addToProcessIsoObject(p) end,
+    },
+}
+
+-- Membership, not just "the call did not error". A constructor may well
+-- set a current square on its own, so asking getCurrentSquare() alone
+-- would report success for a character the renderer never sees -- the
+-- same false positive that made hiding look like it worked.
+function BNS.Body.verifyAttached(proxy)
+    local ok, found = pcall(function()
+        local sq = proxy:getCurrentSquare()
+        if not sq or not sq.getMovingObjects then return false end
+        local list = sq:getMovingObjects()
+        for i = 0, list:size() - 1 do
+            if list:get(i) == proxy then return true end
+        end
+        return false
+    end)
+    return ok and found == true
+end
+
+-- Apply candidates cumulatively: they are complementary registrations,
+-- not alternatives, so stop at the first point membership verifies.
+function BNS.Body.attachProxy(proxy, x, y, z)
+    local cell = getCell()
+    local sq = getSquare and getSquare(math.floor(x), math.floor(y), z or 0) or nil
+    if not sq or not cell then return false, "no square at " .. tostring(x) .. "," .. tostring(y) end
+    if BNS.Body.verifyAttached(proxy) then
+        BNS.Body.attachVia = BNS.Body.attachVia or "constructor"
+        return true
+    end
+    local tried = {}
+    for _, candidate in ipairs(BNS.Body.AttachCandidates) do
+        local usable = false
+        pcall(function() usable = candidate.available(proxy, sq, cell) == true end)
+        if usable then
+            table.insert(tried, candidate.name)
+            pcall(function() candidate.apply(proxy, sq, cell) end)
+            if BNS.Body.verifyAttached(proxy) then
+                if not BNS.Body.attachVia then
+                    BNS.Body.attachVia = table.concat(tried, " + ")
+                    BNS.log("proxies attached to the world with " .. BNS.Body.attachVia)
+                end
+                return true
+            end
+        end
+    end
+    return false, "tried " .. (#tried > 0 and table.concat(tried, ", ") or "nothing usable")
+end
+
 function BNS.Body.createProxy(row)
     local cell = getCell()
     if not cell then return nil end
@@ -247,6 +326,16 @@ function BNS.Body.createProxy(row)
     if row.look and row.look.outfit then
         pcall(function() proxy:dressInNamedOutfit(row.look.outfit) end)
         pcall(function() proxy:resetModelNextFrame() end)
+    end
+    local attached, why = BNS.Body.attachProxy(proxy, row.x, row.y, row.z)
+    if not attached then
+        pcall(function() proxy:removeFromWorld() end)
+        -- No square yet is a timing problem, not a broken build: the
+        -- chunk may still be streaming in. Retry on a later snapshot
+        -- instead of writing the whole layer off.
+        if why and why:find("no square") then return nil end
+        disable("proxy cannot be added to the world (" .. tostring(why) .. ")")
+        return nil
     end
     return proxy
 end
@@ -294,8 +383,6 @@ function BNS.Body.applyRow(row)
     local entry = BNS.Body.proxies[row.id]
     local entryHow = nil
     if not entry then
-        -- Prove we can hide the puppet before drawing anything on top of
-        -- it: a player body over a visible zombie is worse than neither.
         local puppet, how = BNS.Body.findPuppet(row.oid, row.id, row.x, row.y)
         if not puppet then
             -- The shell isn't loaded here yet; try again on a later
@@ -303,13 +390,19 @@ function BNS.Body.applyRow(row)
             return
         end
         entryHow = how
+        -- Build and attach the replacement body *first*. Hiding the shell
+        -- before knowing a proxy will actually be drawn leaves the NPC
+        -- invisible -- or, since the engine re-drives zombie alpha every
+        -- frame, flickering.
+        local proxy = BNS.Body.createProxy(row)
+        if not proxy then return end
         if not BNS.Body.hidePuppet(puppet) then
+            pcall(function() proxy:removeFromWorld() end)
             disable("cannot hide puppets (tried "
                 .. #BNS.Body.HideCandidates .. " methods)")
             return
         end
-        local proxy = BNS.Body.createProxy(row)
-        if not proxy then return end
+        entry = { puppet = puppet }
         -- A proxy standing over a hidden puppet is the layer working.
         -- Record that: `supported` was previously only ever set to false,
         -- so the probe reported "not yet attempted" even with live
@@ -319,8 +412,8 @@ function BNS.Body.applyRow(row)
             BNS.log("player bodies active (proxy created, puppet hidden with "
                 .. (BNS.Body.hideFn and BNS.Body.hideFn.name or "?") .. ")")
         end
-        entry = { proxy = proxy, row = {}, tx = row.x, ty = row.y,
-                  puppetOid = row.oid, matchedBy = entryHow }
+        entry.proxy, entry.row, entry.tx, entry.ty = proxy, {}, row.x, row.y
+        entry.puppetOid, entry.matchedBy = row.oid, entryHow
         BNS.Body.proxies[row.id] = entry
     end
 
@@ -329,9 +422,17 @@ function BNS.Body.applyRow(row)
     if row.x then entry.tx = row.x end
     if row.y then entry.ty = row.y end
     if row.oid then entry.puppetOid = row.oid end
-    -- Keep re-asserting the hide: alpha is re-driven by the engine.
-    local puppet = BNS.Body.findPuppet(entry.puppetOid, row.id, entry.tx, entry.ty)
-    if puppet then BNS.Body.hidePuppet(puppet) end
+    -- Refresh the cached puppet reference; the per-frame tick re-asserts
+    -- the hide, because at 5Hz the engine fades the shell back in between
+    -- snapshots and the NPC visibly flickers.
+    local stale = true
+    if entry.puppet then
+        local ok, dead = pcall(function() return entry.puppet:isDead() end)
+        stale = (not ok) or dead == true
+    end
+    if stale then
+        entry.puppet = BNS.Body.findPuppet(entry.puppetOid, row.id, entry.tx, entry.ty)
+    end
     if row.weapon ~= nil or entry.weapon == nil then equip(entry, entry.row.weapon) end
     if row.anim then BNS.Body.applyAnim(entry, row.anim) end
     if row.dir then
@@ -404,9 +505,23 @@ function BNS.Body.tick()
             local ny = y + (entry.ty - y) * LERP
             p:setX(nx); p:setY(ny)
             p:setLastX(nx); p:setLastY(ny)
-            if entry.row.z then p:setZ(entry.row.z) end
+            local z = entry.row.z or 0
+            if entry.row.z then p:setZ(z) end
+            -- Moving a character by coordinates alone leaves it registered
+            -- to the square it started on, so it renders in the wrong
+            -- place and never migrates. Follow it across squares.
+            if p.setCurrent and getSquare then
+                local sq = getSquare(math.floor(nx), math.floor(ny), z)
+                if sq and sq ~= p:getCurrentSquare() then p:setCurrent(sq) end
+            end
         end)
         if not ok then return end
+        -- Re-assert the hide every frame. The engine re-drives a zombie's
+        -- alpha each frame, so hiding at snapshot rate (5Hz) lets the
+        -- shell fade back in between updates -- read in-game as flicker.
+        if entry.puppet then
+            pcall(function() BNS.Body.hidePuppet(entry.puppet) end)
+        end
     end
 end
 
@@ -550,6 +665,23 @@ function BNS.Body.probe()
     -- 4. Where we ended up.
     local n = 0
     for _ in pairs(BNS.Body.proxies) do n = n + 1 end
+    -- Whether a proxy is actually registered with a square is the
+    -- difference between "player bodies" and "a hidden shell": an
+    -- unattached character is never drawn or animated by the engine.
+    local attachedCount, proxyCount = 0, 0
+    for _, entry in pairs(BNS.Body.proxies) do
+        proxyCount = proxyCount + 1
+        if BNS.Body.verifyAttached(entry.proxy) then
+            attachedCount = attachedCount + 1
+        end
+    end
+    if proxyCount > 0 then
+        add(mark(attachedCount == proxyCount) .. string.format(
+            " proxies registered with a square: %d of %d%s",
+            attachedCount, proxyCount,
+            attachedCount == 0 and " - nothing will be drawn or animated" or ""))
+    end
+    add("     attach method: " .. tostring(BNS.Body.attachVia or "none yet"))
     add(string.format("state: %s, proxies %d, hiding %s",
         BNS.Body.supported == false and ("DISABLED - " .. tostring(BNS.Body.lastError))
             or (BNS.Body.supported == true and "enabled" or "not yet attempted"),

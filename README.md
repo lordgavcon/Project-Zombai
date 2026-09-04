@@ -182,14 +182,19 @@ Non-admin requests are dropped and logged.
   instance) and an id with no alternate is skipped, with one `[BNS]` line
   saying so. Add an entry to `BNS.Loadouts.Alternates` if a drop or stock
   line goes missing on your build.
-- The player-body layer is **confirmed working on 42.20.4**: the Anim lab
-  probe reports `SurvivorFactory.CreateSurvivor`, `IsoPlayer.new(cell,
-  desc, x, y, z)`, and puppet hiding via both `setAlphaAndTarget(0)` and
-  `setInvisible(true)` all present and verified, with snapshots arriving
-  and proxies live. `setModelVisible` does not exist on this build and is
-  skipped. What is still unpinned is the per-action attack/aim variables —
-  cycle those candidates in the Anim lab until the model moves, then make
-  the winner the default.
+- On 42.20.4 the Anim lab probe confirms `SurvivorFactory.CreateSurvivor`,
+  `IsoPlayer.new(cell, desc, x, y, z)`, and puppet hiding via both
+  `setAlphaAndTarget(0)` and `setInvisible(true)`; `setModelVisible` does
+  not exist and is skipped. Constructing a character is **not** the same
+  as putting it in the world, though: a proxy must be registered with a
+  grid square (`BNS.Body.AttachCandidates`, verified by actual membership
+  in the square's moving-object list) or the engine neither draws nor
+  animates it, and you see the restyled shell with zombie animations
+  instead. The probe reports `proxies registered with a square: N of M`
+  and the attach method used — check that line first if NPCs still look
+  like zombies. What remains unpinned is the per-action attack/aim
+  variables; cycle those candidates in the Anim lab until the model moves,
+  then make the winner the default.
   Hair and beard model names are left empty (`BNS.Loadouts.HairStyles`)
   until identified in-game, so hair may currently differ between clients.
 - The fallback path's `Bob_*` clip names in `media/AnimSets/zombie/*/bns_*.xml`

@@ -110,3 +110,21 @@ Two invariants worth keeping in mind when touching the debug code:
   attempted" — the same reading as one that never ran, which is how live
   player bodies were misdiagnosed as broken. Any flag the debug panel
   shows must be written on the success path too.
+- **Constructing a character does not put it in the world.**
+  `IsoPlayer.new(cell, desc, x, y, z)` allocates a character that nothing
+  draws or animates until it is registered with a grid square. Proxies go
+  through `BNS.Body.attachProxy`, and attachment is verified by actual
+  membership in the square's moving-object list — never by
+  `getCurrentSquare() ~= nil`, which a constructor can satisfy on its own.
+  Moving a proxy by `setX`/`setY` alone leaves it on its original square,
+  so the per-frame tick re-registers it as it crosses squares.
+- **Build the replacement before hiding the original.** `applyRow` creates
+  and attaches the proxy first and only then hides the puppet; hiding
+  first leaves the NPC invisible (or flickering) whenever proxy creation
+  fails. If anything downstream fails, the proxy is torn out of the world
+  and the layer disables — never a hidden shell with no body over it.
+- **The engine re-drives zombie alpha every frame**, so the hide is
+  re-asserted in `BNS.Body.tick` (per frame) rather than when a 5 Hz
+  snapshot arrives. Re-asserting at snapshot rate reads in-game as
+  flickering NPCs. The puppet reference is cached on the proxy entry so
+  this costs no zombie-list scan per frame.
