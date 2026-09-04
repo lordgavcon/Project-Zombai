@@ -33,27 +33,21 @@ stored in its mod data. That buys us the engine's real pathfinding
 (`pathToLocationF`) for natural navigation, and free multiplayer position
 sync (zombies already sync). Consequences you should know about:
 
-- **What you see is a player character, not a zombie.** The shell is a
-  *puppet*: hidden, but still doing the engine work — pathfinding,
-  collision, damage, and free multiplayer replication. Mirroring it on
-  each client is an `IsoPlayer` **proxy**, and because that proxy is a
-  real player character its animation comes from the player state machine
-  for free: it is handed the NPC's actual weapon, so a swing is that
-  weapon's own attack animation; it walks and runs with player gaits; it
-  aims and fires like a player; and it wears player skin, hair and
-  clothing. Appearance is rolled once per NPC and persisted, so a given
-  bandit looks the same every time you meet them and identical on every
-  client. Attack *outcomes* are still simulated server-side (hit rolls,
-  gunshot noise that draws zombies, body-part damage through `BodyDamage`).
-  If a build cannot construct proxies or hide puppets, the layer switches
-  itself off (saying so on screen and in the log) and you never get both
-  drawn at once.
-- **Shells are restyled to look alive regardless.** The appearance half
-  doesn't depend on proxies at all: every shell gets living skin from its
-  appearance seed, blood and dirt cleared, wounds healed and its clothing
-  cleaned up, re-asserted periodically because the engine re-rolls zombie
-  visuals. So bandits read as people even on a build where player bodies
-  can't be constructed.
+- **The shell is what you see, restyled and re-animated.** There is no
+  second character. Every shell gets living skin from its appearance seed,
+  blood and dirt cleared, wounds healed and its clothing cleaned up,
+  re-asserted periodically because the engine re-rolls zombie visuals — so
+  bandits read as people rather than corpses. Appearance is rolled once per
+  NPC and persisted, so a given bandit looks the same every time you meet
+  them and identical on every client.
+- **Animation comes from player clips, chosen by animation variables.**
+  The brain sets `BNSAnim` (idle / walk / run / aim / swing / shoot / hit /
+  grabbed) and `Weapon` (the weapon class it is holding) on the shell, and
+  the AnimSet overlays in `42/media/AnimSets/zombie/` play the player's own
+  clips on those conditions — so a bandit with an axe swings like a player
+  with an axe, and one with a pistol takes a pistol stance. Attack
+  *outcomes* are still simulated server-side (hit rolls, gunshot noise that
+  draws zombies, body-part damage through `BodyDamage`).
 - NPCs read as zombies to some vanilla systems (e.g. kill counts), and the
   engine never makes real zombies attack them on their own — so the
   living-vs-dead fight is driven by the mod: NPCs damage zombie engine
@@ -96,7 +90,6 @@ clients.
 | NPC scavenging | on | NPCs loot buildings, leaving low-value evidence |
 | NPC vehicles | on | Claimed vehicles, trunk hauling, raid trucks |
 | Signs of bandit-held POIs | on | Approach evidence, camp noise, challenge shouts |
-| Player bodies for NPCs | on | Draw NPCs as player characters, not shells |
 
 ## Code layout
 
@@ -116,12 +109,11 @@ clients.
                 · BNS_Doors / BNS_Locks (break-ins, combination locks) ·
                 BNS_Scavenge (looting + evidence) · BNS_Vehicles (claiming,
                 trunk hauling) · BNS_Commands (validated trade/talk) ·
-                BNS_Debug (gated debug commands) · BNS_Visual (what the
-                client-side player bodies need to draw) · BNS_Look (restyles
-                shells into living people) · BNS_Main (director:
+                BNS_Debug (gated debug commands) · BNS_Anim (animation
+                variables the AnimSet overlays select on) · BNS_Look
+                (restyles shells into living people) · BNS_Main (director:
                 population, live/virtual boundary)
   client/BNS/   BNS_Client (server commands, floating speech) ·
-                BNS_Body (IsoPlayer proxies = what you actually see) ·
                 BNS_ContextMenu (Talk/Trade) · BNS_TradeWindow (barter UI) ·
                 BNS_LockMenu (padlocks) · BNS_DebugUI (test panel) ·
                 BNS_DebugOverlay (NPC state above heads)
@@ -182,29 +174,27 @@ Non-admin requests are dropped and logged.
   instance) and an id with no alternate is skipped, with one `[BNS]` line
   saying so. Add an entry to `BNS.Loadouts.Alternates` if a drop or stock
   line goes missing on your build.
-- **Player bodies are off by default and do not work on 42.20.4.** The
-  Anim lab probe confirms every individual step —
-  `SurvivorFactory.CreateSurvivor`, `IsoPlayer.new(cell, desc, x, y, z)`,
-  registration with a grid square (verified by membership in the square's
-  moving-object list), and puppet hiding via `setAlphaAndTarget(0)` — and
-  the character is still never drawn. The engine appears not to render
-  non-controlled `IsoPlayer` instances at all, and no amount of
-  registration changes that. So the shipping look is the **restyled
-  shell**: living skin, clean clothing, no wounds, zombie animations.
-  The layer is kept behind `BNS.PlayerBodiesEnabled` (default off) and,
-  even when enabled, **never hides a shell** until you confirm you can see
-  a body: Anim lab → *Body preview* builds proxies alongside visible
-  shells, and *I see bodies* is the only thing that turns hiding on. That
-  ordering exists because hiding an undrawn proxy's shell is what made
-  NPCs invisible.
-  Hair and beard model names are left empty (`BNS.Loadouts.HairStyles`)
-  until identified in-game, so hair may currently differ between clients.
-- The fallback path's `Bob_*` clip names in `media/AnimSets/zombie/*/bns_*.xml`
-  are also best-known guesses; they only matter if player bodies are off or
-  unsupported.
-- Animation variables are set server-side; if they turn out not to sync to
-  MP clients on 42.20, a client-side mirror pass fed by a periodic server
-  broadcast is the planned fallback.
+- **NPC animation runs on the shell itself.** NPCs are `IsoZombie` shells
+  flagged `BNSNPC`, and `BNS_Anim.lua` sets `BNSAnim` (idle / walk / run /
+  aim / swing / shoot / hit / grabbed) and `Weapon` (the vanilla weapon
+  classes) on them; the AnimSet overlays in `42/media/AnimSets/zombie/`
+  select player clips on those conditions, so a swing matches the weapon in
+  hand. Every clip name in those overlays is taken from the game's own
+  `media/AnimSets/player/`, not guessed.
+  A client-side `IsoPlayer` proxy layer was tried and **removed**: on
+  42.20.4 every step verified — descriptor, constructor, square
+  registration, puppet hiding — and the engine still never drew the
+  character, which left NPCs invisible. B42 does not appear to render
+  non-controlled `IsoPlayer` instances.
+- Which *state directories* the zombie AnimSet exposes (`idle`,
+  `walktowards`, `attack`) is still assumed rather than read from the
+  game's `media/AnimSets/zombie/`. If a mode never plays, that is the first
+  thing to check — the debug panel's Anim lab forces one mode at a time on
+  a selected NPC so each node can be confirmed individually.
+- Animation variables are set server-side. If MP clients show zombie
+  animations while single player shows human ones, they are not
+  replicating and the fix is a client-side mirror pass — the variables are
+  the only thing that would need sending.
 - Environment detection reads the map's meta-grid zone types (Farm,
   TownZone, Forest…); if zone lookup fails it falls back to the baseline
   weights. Military site coordinates in `BNS_POIs.lua` are approximate —

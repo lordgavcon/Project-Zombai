@@ -14,30 +14,28 @@ See README.md for the feature list and the code-layout map. Key facts:
 - NPCs are **server-controlled zombie shells** (`IsoZombie` + a Lua brain in
   mod data). All AI runs in `42/media/lua/server/BNS/`; `lua/server` also
   loads in single player, so SP and MP share one code path.
-- **Puppet + proxy rendering.** The shell is the puppet: it paths, collides,
-  takes damage and replicates to MP clients for free — that replication is
-  the whole reason the shell design exists and must not be traded away.
-  What players see is a client-side `IsoPlayer` proxy (`BNS_Body.lua`)
-  mirroring it, fed by `BNS_Visual.lua` (clients cannot read a puppet's
-  brain — mod data does not replicate — so the server sends id, online id,
-  position, gait, weapon and appearance). Two invariants: **never draw a
-  proxy over a visible puppet** (prove hiding works first — a `pcall` that
-  merely does not error proves nothing, since alpha is re-driven each frame —
-  else disable the layer), and **every engine call in that layer is
-  `pcall`-guarded** with a clean fallback to shell rendering.
-- Appearance does *not* depend on proxies: `BNS_Look.lua` restyles the shell
-  itself (living skin, no blood/wounds, clean clothing) so NPCs look human
-  even where player bodies are unavailable. Keep those two concerns separate.
-- When something in this layer doesn't work in-game, extend
-  `BNS.Body.probe()` rather than guessing: it prints a pass/fail line per
-  pipeline step, including whether the server's snapshots arrive at all.
+
+- **The shell is the character.** There is no second body. NPCs look human
+  because `BNS_Look.lua` restyles the shell (living skin, no blood/wounds,
+  clean clothing) and animate like players because `BNS_Anim.lua` sets
+  `BNSNPC` / `BNSAnim` / `Weapon` on it and the AnimSet overlays in
+  `42/media/AnimSets/zombie/` select player clips on those conditions.
+  This is the approach the shipping B42 NPC mods use. A client-side
+  `IsoPlayer` proxy layer was tried and removed: B42 does not render
+  non-controlled `IsoPlayer` instances, and hiding the shell to make room
+  for one that is never drawn is what made NPCs invisible. Do not
+  reintroduce it.
 - Client code (`42/media/lua/client/BNS/`) only renders speech/UI and sends
   commands; the server validates everything (trades, locks).
 - The `BNS` Lua namespace and `BNS_*` file names are internal and kept from
   the original project — do not mass-rename them.
-- The AnimSet overlay XMLs in `42/media/AnimSets/zombie/` (gated on
-  `BNSNPC`/`BNSAnim` set by `BNS_Anim.lua`) are now the *fallback* look, used
-  only when player-body proxies are off or unsupported.
+- **AnimSet XML has an exact form.** A STRING condition is
+  `<m_Type>STRING</m_Type>` with `<m_Value>`; pairing it with
+  `<m_StringValue>` matches nothing and the node silently never plays.
+  Clip names (`Bob_*`) and `Weapon` values (`1handed`, `2handed`, `heavy`,
+  `knife`, `spear`, `handgun`, `firearm`, `chainsaw`, `throwing`) must come
+  from the game's own `media/AnimSets/player/`, never from memory —
+  `tests/test_anim.lua` enforces the form and the mode coverage.
 - **Engine commands are rationed.** A shell is moved by the engine's own
   pathfinder, so every extra order restarts its movement mid-step and the
   NPC visibly skates. Path orders go through `BNS.Programs.walkTo`, which
@@ -77,10 +75,12 @@ draws each NPC's live program above their head. See README "Debug & testing".
 When adding a behaviour, add a Scenarios entry for it in `BNS.Debug.Scenarios`
 so it can be exercised in-game, alongside the offline suite.
 
-Engine names that cannot be checked offline (attack/aim variables, character
-hiding, hair models) belong in a *candidate list* driven by the debug panel's
-Anim lab rather than a single guess in the code — see `BNS.Body.ActionCandidates`.
-Once a candidate is confirmed in-game, make it the default.
+Engine names that cannot be checked offline belong in a *candidate list*
+driven by the debug panel rather than a single guess in the code (see
+`BNS.Look`'s guarded ops and `BNS.Loadouts.Alternates`). Once a candidate is
+confirmed in-game, make it the default. Animation names are the exception:
+they *can* be checked, against the game's own `media/AnimSets/player/`, so
+never guess one.
 
 Two invariants worth keeping in mind when touching the debug code:
 - Every debug command must be gated server-side in `BNS.Debug.handle` — MP
@@ -103,40 +103,7 @@ Two invariants worth keeping in mind when touching the debug code:
 - **A guarded call is not a free call.** `pcall` stops an error
   propagating, but Kahlua still dumps a full stack trace to `console.txt`
   every time, so probing a method that does not exist is not harmless.
-  Check the method is present first (`BNS.Body.candidateAvailable`, the
-  `needs` field on each candidate) and only then call it.
-- **Report success, not just failure.** `BNS.Body.supported` was set only
-  by `disable()`, so a fully working layer still probed as "not yet
-  attempted" — the same reading as one that never ran, which is how live
-  player bodies were misdiagnosed as broken. Any flag the debug panel
-  shows must be written on the success path too.
-- **Constructing a character does not put it in the world.**
-  `IsoPlayer.new(cell, desc, x, y, z)` allocates a character that nothing
-  draws or animates until it is registered with a grid square. Proxies go
-  through `BNS.Body.attachProxy`, and attachment is verified by actual
-  membership in the square's moving-object list — never by
-  `getCurrentSquare() ~= nil`, which a constructor can satisfy on its own.
-  Moving a proxy by `setX`/`setY` alone leaves it on its original square,
-  so the per-frame tick re-registers it as it crosses squares.
-- **Build the replacement before hiding the original.** `applyRow` creates
-  and attaches the proxy first and only then hides the puppet; hiding
-  first leaves the NPC invisible (or flickering) whenever proxy creation
-  fails. If anything downstream fails, the proxy is torn out of the world
-  and the layer disables — never a hidden shell with no body over it.
-- **The engine re-drives zombie alpha every frame**, so the hide is
-  re-asserted in `BNS.Body.tick` (per frame) rather than when a 5 Hz
-  snapshot arrives. Re-asserting at snapshot rate reads in-game as
-  flickering NPCs. The puppet reference is cached on the proxy entry so
-  this costs no zombie-list scan per frame.
-- **Never hide a shell on the strength of an inference.** Every step of
-  the player-body pipeline can verify green — descriptor, constructor,
-  square membership, hiding — and the engine still not draw the character,
-  because B42 does not appear to render non-controlled `IsoPlayer`
-  instances. Hiding is therefore gated on `BNS.Body.hideAllowed`, which
-  only `BNS.Body.confirmBodiesVisible()` sets, and only after a human has
-  looked at the screen during *Body preview*. Nothing else may set it.
-  The failure mode this prevents — invisible NPCs — is worse than the
-  feature being off.
+  Check the method is present first, then call it.
 - **A verification is only as good as what it observes.** "The call did
   not error" did not prove hiding worked; "membership in the square's
   moving-object list" did not prove the character was drawn. When the

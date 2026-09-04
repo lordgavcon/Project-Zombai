@@ -1,13 +1,11 @@
 --***********************************************************************
 -- Project Zombai — making a shell look alive (server)
 --
--- The client-side player-body proxies (BNS_Body.lua) are the ideal, but
--- they depend on engine calls that may not exist on a given build. The
--- *appearance* half of "stop looking like zombies" does not: a shell is
--- an IsoZombie, but its model is the same human model a player uses, so
+-- Appearance half of "stop looking like zombies". A shell is an
+-- IsoZombie, but its model is the same human model a player uses, so
 -- restyling its HumanVisual — living skin instead of grey, no blood, no
--- wounds, real hair — makes it read as a living person even when no
--- proxy is ever created.
+-- wounds, real hair — makes it read as a living person. Animation is the
+-- other half and is handled by BNS_Anim through the AnimSet overlays.
 --
 -- Every call is a named, guarded operation. Whatever this build
 -- supports is applied; the rest is skipped and reported, so the debug

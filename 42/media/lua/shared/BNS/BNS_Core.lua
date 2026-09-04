@@ -66,11 +66,6 @@ function BNS.Options()
         scavenging       = BNS.SV("ScavengingEnabled", true),
         vehicles         = BNS.SV("NPCVehiclesEnabled", true),
         poiSigns         = BNS.SV("POISignsEnabled", true),
-        -- Off by default: on 42.20.4 a non-controlled IsoPlayer is not
-        -- drawn even once registered with a square, and an enabled layer
-        -- hides the shell, so NPCs go invisible. Restyled shells are the
-        -- shipping look until the Anim lab's body preview shows otherwise.
-        playerBodies     = BNS.SV("PlayerBodiesEnabled", false),
     }
 end
 

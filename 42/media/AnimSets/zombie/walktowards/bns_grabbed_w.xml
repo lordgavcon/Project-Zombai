@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- BNS: grabbed-struggle node for the walking state, same trigger as
-     idle/bns_grabbed. -->
+<!-- BNS: grabbed while moving -- stop and struggle. -->
 <animNode>
 	<m_Name>bns_grabbed_w</m_Name>
-	<m_AnimName>Bob_GrabbedFront</m_AnimName>
-	<m_Looped>True</m_Looped>
-	<m_Priority>15</m_Priority>
+	<m_AnimName>Bob_BiteDefend</m_AnimName>
+	<m_Looped>true</m_Looped>
+	<m_BlendTime>0.15</m_BlendTime>
+	<m_Priority>17</m_Priority>
 	<m_Conditions>
 		<m_Name>BNSNPC</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_StringValue>true</m_StringValue>
+		<m_Value>true</m_Value>
 	</m_Conditions>
 	<m_Conditions>
 		<m_Name>BNSAnim</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_StringValue>grabbed</m_StringValue>
+		<m_Value>grabbed</m_Value>
 	</m_Conditions>
 </animNode>

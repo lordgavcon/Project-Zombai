@@ -17,7 +17,6 @@ require "BNS/BNS_ZombieThreat"
 require "BNS/BNS_Doors"
 require "BNS/BNS_Scavenge"
 require "BNS/BNS_Vehicles"
-require "BNS/BNS_Visual"
 require "BNS/BNS_Look"
 
 BNS.Brain = {}
@@ -218,14 +217,10 @@ function BNS.Brain.onZombieDead(zombie)
     BNS.Spawner.dropLoot(zombie, brain)
     BNS.Persistence.remove(brain.id)
     BNS.ZombieThreat.targets[brain.id] = nil
-    BNS.Visual.forget(brain.id)
     if isServer() then
         sendServerCommand(BNS.CommandModule, "npcDead", { id = brain.id })
     end
 end
-
--- Push what the client-side player bodies need to draw.
-Events.OnTick.Add(BNS.Visual.tick)
 
 Events.OnZombieUpdate.Add(BNS.Brain.onZombieUpdate)
 Events.OnWeaponHitCharacter.Add(BNS.Brain.onWeaponHitCharacter)
