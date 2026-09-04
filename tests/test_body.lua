@@ -197,6 +197,12 @@ assert(entry and entry.proxy.prim and entry.proxy.prim.ft == "Base.Axe",
 assert(entry.proxy.desc.female == true, "appearance seed applied")
 assert(entry.proxy.outfit == "Farmer", "outfit applied")
 assert(entry.proxy.vars.bMoving == true and entry.proxy.vars.bRunning == false, "gait variables set")
+-- `supported` used to be set only on failure, so a working layer still
+-- reported "not yet attempted" -- indistinguishable from one that never
+-- ran, which is how a live layer got misread as broken.
+assert(BNS.Body.supported == true, "a created proxy marks the layer enabled")
+assert(table.concat(BNS.Body.probe(), "\n"):find("state: enabled"),
+    "and the probe says so instead of 'not yet attempted'")
 
 -- a second update reuses the proxy and does not re-equip
 local before = #createdProxies
@@ -476,5 +482,29 @@ assert(#filtered == 2, "unresolvable lines are dropped, got " .. #filtered)
 assert(filtered[2].item == "Base.WaterBottle", "the surviving line carries the resolved id")
 assert(filtered[2].value == 3, "and keeps its other fields")
 print("item id resolution OK")
+
+-- 21. Hide candidates the build does not have are skipped, not called -------------------
+-- A pcall keeps the error contained but Kahlua still dumps a stack trace
+-- to console.txt, so an absent method must not be called at all.
+local called = {}
+local partialZombie = {
+    setAlphaAndTarget = function() called.alpha = true end,
+    getAlpha = function() return 0 end,
+    -- no setInvisible / setModelVisible on this fake build
+}
+for _, candidate in ipairs(BNS.Body.HideCandidates) do
+    if candidate.needs == "setAlphaAndTarget" then
+        assert(BNS.Body.candidateAvailable(candidate, partialZombie),
+            "a method the build has is available")
+    else
+        assert(not BNS.Body.candidateAvailable(candidate, partialZombie),
+            "a method the build lacks is not attempted: " .. candidate.name)
+    end
+end
+BNS.Body.hideFn = nil
+assert(BNS.Body.hidePuppet(partialZombie), "hiding still succeeds via the available call")
+assert(called.alpha, "and used the one the build has")
+print("hide candidate availability OK")
+
 
 print("ALL TESTS PASSED")

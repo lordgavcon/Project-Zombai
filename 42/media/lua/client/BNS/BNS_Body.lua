@@ -38,11 +38,25 @@ local LERP = 0.35 -- how fast a proxy catches up to its puppet per tick
 -- lists the plausible calls in order; the debug panel's animation lab
 -- steps through them in-game so the working one can be pinned here.
 
+-- `needs` names the method the candidate calls, so one that this build
+-- does not have is skipped instead of called blind. A pcall stops the
+-- error propagating but Kahlua still dumps a full stack trace to
+-- console.txt, so "just guard it" is not enough -- don't make the call.
 BNS.Body.HideCandidates = {
-    { name = "setAlphaAndTarget(0)", apply = function(z) z:setAlphaAndTarget(0) end },
-    { name = "setInvisible(true)",   apply = function(z) z:setInvisible(true) end },
-    { name = "setModelVisible(false)", apply = function(z) z:setModelVisible(false) end },
+    { name = "setAlphaAndTarget(0)", needs = "setAlphaAndTarget",
+      apply = function(z) z:setAlphaAndTarget(0) end },
+    { name = "setInvisible(true)", needs = "setInvisible",
+      apply = function(z) z:setInvisible(true) end },
+    { name = "setModelVisible(false)", needs = "setModelVisible",
+      apply = function(z) z:setModelVisible(false) end },
 }
+
+-- Can this candidate even be tried on this object?
+function BNS.Body.candidateAvailable(candidate, obj)
+    if not obj then return false end
+    if not candidate.needs then return true end
+    return obj[candidate.needs] ~= nil
+end
 
 BNS.Body.ActionCandidates = {
     swing = {
@@ -156,7 +170,8 @@ function BNS.Body.hidePuppet(zombie)
         return true
     end
     for _, candidate in ipairs(BNS.Body.HideCandidates) do
-        local ok = pcall(function() candidate.apply(zombie) end)
+        local ok = BNS.Body.candidateAvailable(candidate, zombie)
+            and pcall(function() candidate.apply(zombie) end)
         if ok then
             local hidden = BNS.Body.verifyHidden(zombie)
             if hidden ~= false then
@@ -295,6 +310,15 @@ function BNS.Body.applyRow(row)
         end
         local proxy = BNS.Body.createProxy(row)
         if not proxy then return end
+        -- A proxy standing over a hidden puppet is the layer working.
+        -- Record that: `supported` was previously only ever set to false,
+        -- so the probe reported "not yet attempted" even with live
+        -- proxies on screen -- which reads exactly like a broken layer.
+        if BNS.Body.supported == nil then
+            BNS.Body.supported = true
+            BNS.log("player bodies active (proxy created, puppet hidden with "
+                .. (BNS.Body.hideFn and BNS.Body.hideFn.name or "?") .. ")")
+        end
         entry = { proxy = proxy, row = {}, tx = row.x, ty = row.y,
                   puppetOid = row.oid, matchedBy = entryHow }
         BNS.Body.proxies[row.id] = entry
@@ -510,12 +534,16 @@ function BNS.Body.probe()
 
     if npc then
         for _, candidate in ipairs(BNS.Body.HideCandidates) do
-            local ok = pcall(function() candidate.apply(npc) end)
-            local verified = ok and BNS.Body.verifyHidden(npc) or nil
-            add(string.format("%s hide via %s%s", mark(ok), candidate.name,
-                ok and (verified == true and " (verified invisible)"
-                    or (verified == false and " (call worked but still visible)"
-                    or " (cannot verify on this build)")) or ""))
+            if not BNS.Body.candidateAvailable(candidate, npc) then
+                add("[--] hide via " .. candidate.name .. " - not on this build")
+            else
+                local ok = pcall(function() candidate.apply(npc) end)
+                local verified = ok and BNS.Body.verifyHidden(npc) or nil
+                add(string.format("%s hide via %s%s", mark(ok), candidate.name,
+                    ok and (verified == true and " (verified invisible)"
+                        or (verified == false and " (call worked but still visible)"
+                        or " (cannot verify on this build)")) or ""))
+            end
         end
     end
 

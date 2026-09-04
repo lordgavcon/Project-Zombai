@@ -158,6 +158,7 @@ end
 BNS.Loadouts.Alternates = {
     ["Base.WaterBottleFull"] = { "Base.WaterBottle", "Base.WaterBottlePlastic" },
     ["Base.WhiskeyFull"]     = { "Base.Whiskey", "Base.WhiskeyBottle" },
+    ["Base.Cigarettes"]      = { "Base.CigarettePack", "Base.Cigarette", "Base.CigaretteCarton" },
     ["Base.Seeds"]           = { "farming.CabbageBagSeed", "farming.CarrotBagSeed" },
     ["Base.TinnedBeans"]     = { "Base.CannedBeans", "Base.BeansCan" },
     ["Base.CannedChili"]     = { "Base.CannedChilli", "Base.TinnedBeans" },

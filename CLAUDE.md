@@ -100,3 +100,13 @@ Two invariants worth keeping in mind when touching the debug code:
   build via `ScriptManager`, substitutes a known alternate from
   `BNS.Loadouts.Alternates`, or drops the line. Never hand a raw id from
   `BNS_Loadouts.lua` to `AddItem` / `instanceItem` / `AddWorldInventoryItem`.
+- **A guarded call is not a free call.** `pcall` stops an error
+  propagating, but Kahlua still dumps a full stack trace to `console.txt`
+  every time, so probing a method that does not exist is not harmless.
+  Check the method is present first (`BNS.Body.candidateAvailable`, the
+  `needs` field on each candidate) and only then call it.
+- **Report success, not just failure.** `BNS.Body.supported` was set only
+  by `disable()`, so a fully working layer still probed as "not yet
+  attempted" — the same reading as one that never ran, which is how live
+  player bodies were misdiagnosed as broken. Any flag the debug panel
+  shows must be written on the success path too.

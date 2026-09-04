@@ -182,12 +182,14 @@ Non-admin requests are dropped and logged.
   instance) and an id with no alternate is skipped, with one `[BNS]` line
   saying so. Add an entry to `BNS.Loadouts.Alternates` if a drop or stock
   line goes missing on your build.
-- The player-body layer's engine calls (constructing an `IsoPlayer`, the
-  neutralising calls, hiding a puppet, and the attack/aim variables) are
-  informed guesses that cannot be verified outside the game — that is
-  exactly what the debug panel's **Anim lab** exists to settle: it reports
-  which puppet-hiding call worked and lets you cycle the candidates per
-  action until the model moves, so the winner can be pinned as default.
+- The player-body layer is **confirmed working on 42.20.4**: the Anim lab
+  probe reports `SurvivorFactory.CreateSurvivor`, `IsoPlayer.new(cell,
+  desc, x, y, z)`, and puppet hiding via both `setAlphaAndTarget(0)` and
+  `setInvisible(true)` all present and verified, with snapshots arriving
+  and proxies live. `setModelVisible` does not exist on this build and is
+  skipped. What is still unpinned is the per-action attack/aim variables —
+  cycle those candidates in the Anim lab until the model moves, then make
+  the winner the default.
   Hair and beard model names are left empty (`BNS.Loadouts.HairStyles`)
   until identified in-game, so hair may currently differ between clients.
 - The fallback path's `Bob_*` clip names in `media/AnimSets/zombie/*/bns_*.xml`
