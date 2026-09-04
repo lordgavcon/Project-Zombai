@@ -384,4 +384,97 @@ assert(BNS.Look.support["clear dirt"] == false, "records what does not")
 assert(#BNS.Look.report() >= 6, "reports a line per operation")
 print("living-look pass OK (" .. applied .. " ops applied)")
 
+-- 17. Item visuals whose setters are per-body-part ------------------------------------
+-- The engine's ItemVisual wants setBlood(BloodBodyPartType, value); the
+-- first in-game run threw "expected 2 arguments, got 1" on every call.
+BloodBodyPartType = {
+    MAX = { index = function() return 3 end },
+    FromIndex = function(i) return { part = i } end,
+}
+local cleaned = {}
+local strictVisual = {
+    setBlood = function(self, part, value)
+        if value == nil then error("expected 2 arguments, got 1") end
+        table.insert(cleaned, { part = part.part, value = value })
+    end,
+}
+local shell2 = {
+    getHumanVisual = function() return {} end,
+    getItemVisuals = function() return {
+        size = function() return 1 end,
+        get = function() return strictVisual end,
+    } end,
+}
+BNS.Look.support = {}
+BNS.Look.broken = {}
+BNS.Look.apply(shell2, { look = {} })
+assert(#cleaned == 3, "cleaned every blood body part, got " .. #cleaned)
+assert(BNS.Look.support["clean clothing"] == true, "the two-argument form is accepted")
+assert(BNS.Look.broken["clean clothing"] == nil, "a working op is not marked broken")
+print("per-body-part item visuals OK (" .. #cleaned .. " parts cleared)")
+
+-- 18. Builds whose setters take a single value still work --------------------------------
+-- Same op, a method that rejects the per-part form: it must fall back
+-- rather than be written off as unsupported.
+local single = 0
+local looseVisual = { setDirt = function(self, a, b)
+    if b ~= nil then error("expected 1 argument, got 2") end
+    if a == nil then error("no value") end
+    single = single + 1
+end }
+local shell3 = {
+    getHumanVisual = function() return {} end,
+    getItemVisuals = function() return {
+        size = function() return 1 end,
+        get = function() return looseVisual end,
+    } end,
+}
+BNS.Look.support = {}
+BNS.Look.broken = {}
+BNS.Look.apply(shell3, { look = {} })
+assert(single == 1, "fell back to the single-argument form, got " .. single)
+assert(BNS.Look.support["clean clothing"] == true, "the op still counts as working")
+BNS.Look.apply(shell3, { look = {} })
+assert(single == 2, "and the working form is remembered, got " .. single)
+print("single-argument item visuals OK")
+
+-- 19. An op that throws is disabled, not retried forever --------------------------------
+-- 1263 identical stack traces in one session came from re-calling, on every
+-- re-assertion, an op the build cannot support.
+local calls = 0
+local shell4 = {
+    getHumanVisual = function() return {} end,
+    getItemVisuals = function()
+        calls = calls + 1
+        return { size = function() error("no such method") end }
+    end,
+}
+BNS.Look.support = {}
+BNS.Look.broken = {}
+for _ = 1, 20 do BNS.Look.apply(shell4, { look = {} }) end
+assert(calls == 1, "a throwing op is called once, not every tick (got " .. calls .. ")")
+assert(BNS.Look.broken["clean clothing"], "the failure is recorded")
+assert(BNS.Look.support["clean clothing"] == false, "and reported as unsupported")
+local blob2 = table.concat(BNS.Look.report(), "\n")
+assert(blob2:find("%[err%]"), "the probe reports it as an error, not a silent no")
+print("broken-op lockout OK (" .. calls .. " calls across 20 passes)")
+
+-- 20. Item ids are resolved against the running build -----------------------------------
+require("BNS/BNS_Loadouts")
+local present = { ["Base.Machete"] = true, ["Base.WaterBottle"] = true }
+ScriptManager = { instance = { getItem = function(_, id) return present[id] end } }
+assert(BNS.Loadouts.item("Base.Machete") == "Base.Machete", "a real id passes through")
+assert(BNS.Loadouts.item("Base.WaterBottleFull") == "Base.WaterBottle",
+    "a renamed id resolves to its alternate")
+assert(BNS.Loadouts.item("Base.NotAThing") == nil, "an unknown id with no alternate is dropped")
+local filtered = BNS.Loadouts.filter({
+    { item = "Base.Machete", value = 1 },
+    { item = "Base.NotAThing", value = 2 },
+    { item = "Base.WaterBottleFull", value = 3 },
+})
+assert(#filtered == 2, "unresolvable lines are dropped, got " .. #filtered)
+assert(filtered[2].item == "Base.WaterBottle", "the surviving line carries the resolved id")
+assert(filtered[2].value == 3, "and keeps its other fields")
+print("item id resolution OK")
+
 print("ALL TESTS PASSED")

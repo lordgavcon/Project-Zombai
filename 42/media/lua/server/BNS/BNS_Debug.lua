@@ -373,7 +373,8 @@ function BNS.Debug.spawnLootBox(player)
     end
     for _, entry in ipairs({ "Base.Antibiotics", "Base.TinnedBeans", "Base.HuntingKnife",
             "Base.Bullets9mm", "Base.CrumpledPaper", "Base.Spoon", "Base.Plank" }) do
-        container:AddItem(entry)
+        local id = BNS.Loadouts.item(entry)
+        if id then container:AddItem(id) end
     end
     sq:getModData().BNS_Looted = nil
     note(player, "stocked a container at " .. sq:getX() .. "," .. sq:getY())

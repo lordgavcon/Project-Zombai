@@ -87,3 +87,16 @@ Two invariants worth keeping in mind when touching the debug code:
   clients can forge `sendClientCommand`, so the UI's own check is cosmetic.
 - Never pick "the newest NPC" by iterating `pairs(state.npcs)`; the order is
   arbitrary. `BNS.Debug.spawnNPC` returns the ids it created — use those.
+- **Engine call signatures are guesses until the game says otherwise.**
+  `ItemVisual:setBlood` takes `(BloodBodyPartType, float)`, not `(float)`,
+  and the wrong arity threw ~1,300 stack traces in a single session because
+  `BNS.Look.apply` re-ran the failing op on every re-assertion. Two rules
+  came out of that: probe both plausible forms once and cache which the
+  build wants (`setOnVisual`), and **never retry an op that threw** —
+  `BNS.Look.broken` locks it out for the session and the probe reports it
+  as `[err]` rather than a silent `[no]`. Apply the same shape to any new
+  guarded engine call that runs on a tick.
+- **Item ids go through `BNS.Loadouts.item()`**, which checks the running
+  build via `ScriptManager`, substitutes a known alternate from
+  `BNS.Loadouts.Alternates`, or drops the line. Never hand a raw id from
+  `BNS_Loadouts.lua` to `AddItem` / `instanceItem` / `AddWorldInventoryItem`.

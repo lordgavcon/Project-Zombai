@@ -102,8 +102,9 @@ function BNS.Commands.doTrade(player, args)
     for _, w in ipairs(args.want or {}) do
         local entry = brain.stock[w.index]
         entry.count = entry.count - w.count
+        local id = BNS.Loadouts.item(entry.item)
         for _ = 1, w.count do
-            inv:AddItem(entry.item)
+            if id then inv:AddItem(id) end
         end
     end
     -- Compact sold-out lines and persist the new stock.

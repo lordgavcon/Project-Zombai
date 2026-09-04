@@ -23,6 +23,8 @@ BNS.Look = {}
 
 -- op name -> true (worked at least once) / false (never worked)
 BNS.Look.support = {}
+-- op name -> the error text, for ops that threw and are now disabled
+BNS.Look.broken = {}
 
 local REASSERT_TICKS = 300 -- full brain ticks between re-applications
 
@@ -31,6 +33,59 @@ local function visualOf(zombie)
     local ok, visual = pcall(function() return zombie:getHumanVisual() end)
     if ok then return visual end
     return nil
+end
+
+-- ItemVisual's blood/dirt/hole setters are per-body-part on this engine:
+-- setBlood(BloodBodyPartType, float), not setBlood(float). Guessing the
+-- arity wrong throws "expected 2 arguments, got 1" on every call, which
+-- is exactly what the first in-game run produced. Probe both forms once,
+-- remember which one this build wants, and never call a form that has
+-- already failed.
+local bloodParts = nil
+
+local function getBloodParts()
+    if bloodParts then return bloodParts end
+    bloodParts = {}
+    if BloodBodyPartType and BloodBodyPartType.FromIndex then
+        pcall(function()
+            local count = 0
+            if BloodBodyPartType.MAX and BloodBodyPartType.MAX.index then
+                count = BloodBodyPartType.MAX:index()
+            elseif BloodBodyPartType.MAX and BloodBodyPartType.MAX.ordinal then
+                count = BloodBodyPartType.MAX:ordinal()
+            end
+            for i = 0, count - 1 do
+                local part = BloodBodyPartType.FromIndex(i)
+                if part then table.insert(bloodParts, part) end
+            end
+        end)
+    end
+    return bloodParts
+end
+
+-- method name -> 2 (per body part), 1 (single value), or false (broken)
+local setterArity = {}
+
+local function setOnVisual(iv, name, value)
+    if not iv[name] then return false end
+    local arity = setterArity[name]
+    if arity == false then return false end
+    if arity ~= 1 then
+        local parts = getBloodParts()
+        if #parts > 0 and pcall(function()
+                for _, part in ipairs(parts) do iv[name](iv, part, value) end
+            end) then
+            setterArity[name] = 2
+            return true
+        end
+        if arity == 2 then setterArity[name] = false return false end
+    end
+    if pcall(function() iv[name](iv, value) end) then
+        setterArity[name] = 1
+        return true
+    end
+    setterArity[name] = false
+    return false
 end
 
 -- Each op returns true when it actually did something.
@@ -81,10 +136,9 @@ local OPS = {
             for i = 0, visuals:size() - 1 do
                 local iv = visuals:get(i)
                 if iv then
-                    if iv.setBlood then iv:setBlood(0.0) done = true end
-                    if iv.clearBlood then iv:clearBlood() done = true end
-                    if iv.setDirt then iv:setDirt(0.0) done = true end
-                    if iv.setHoleLevel then iv:setHoleLevel(0) done = true end
+                    if setOnVisual(iv, "setBlood", 0.0) then done = true end
+                    if setOnVisual(iv, "setDirt", 0.0) then done = true end
+                    if setOnVisual(iv, "setHoleLevel", 0) then done = true end
                 end
             end
             return done
@@ -138,13 +192,25 @@ function BNS.Look.apply(zombie, brain)
     local look = brain.look
     local applied = 0
     for _, op in ipairs(OPS) do
-        local ok, did = pcall(function() return op.apply(zombie, look) end)
-        local worked = (ok and did) and true or false
-        -- Once an op is known to work, keep that verdict.
-        if worked or BNS.Look.support[op.name] == nil then
-            BNS.Look.support[op.name] = worked
+        if not BNS.Look.broken[op.name] then
+            local ok, did = pcall(function() return op.apply(zombie, look) end)
+            if not ok then
+                -- An op that threw is asking the engine for something this
+                -- build does not have. Retrying it every re-assert turns one
+                -- wrong guess into thousands of stack traces in console.txt,
+                -- so record it and never call it again this session.
+                BNS.Look.broken[op.name] = tostring(did)
+                BNS.Look.support[op.name] = false
+                BNS.log("look op '" .. op.name .. "' unsupported on this build: " .. tostring(did))
+            else
+                local worked = did and true or false
+                -- Once an op is known to work, keep that verdict.
+                if worked or BNS.Look.support[op.name] == nil then
+                    BNS.Look.support[op.name] = worked
+                end
+                if worked then applied = applied + 1 end
+            end
         end
-        if worked then applied = applied + 1 end
     end
     brain.lookApplied = applied
     return applied
@@ -163,8 +229,10 @@ function BNS.Look.report()
     local lines = {}
     for _, op in ipairs(OPS) do
         local state = BNS.Look.support[op.name]
-        table.insert(lines, string.format("  %s %s",
-            state == true and "[ok]" or (state == false and "[no]" or "[ ? ]"), op.name))
+        local err = BNS.Look.broken[op.name]
+        table.insert(lines, string.format("  %s %s%s",
+            err and "[err]" or (state == true and "[ok]" or (state == false and "[no]" or "[ ? ]")),
+            op.name, err and (" - " .. err) or ""))
     end
     return lines
 end

@@ -168,6 +168,20 @@ Non-admin requests are dropped and logged.
   few calls (e.g. `setUseless`, `IsoBarricade.AddBarricadeToObject`,
   outfit names) may need renaming against the current javadocs. Everything
   is guarded where practical; check `console.txt` for `[BNS]` lines.
+- **Arming a shell trips a vanilla bug.** `setPrimaryHandItem` fires the
+  engine's `OnEquipPrimary` event, and B42's own `FishingHandler.lua`
+  assumes the character is a player, so it throws
+  (`Object tried to call nil in handleFishing`) once per NPC that
+  materialises with a weapon. The engine catches it in its own event
+  `pcall`, so the weapon *is* equipped and nothing in the mod is affected —
+  it is console noise from vanilla code we have no supported way to skip,
+  since there is no event-free setter for a hand item.
+- Item ids in `BNS_Loadouts.lua` are resolved against the running build
+  through `BNS.Loadouts.item()` before anything is spawned: a renamed id
+  falls back to a known alternate (B42 dropped `Base.WaterBottleFull`, for
+  instance) and an id with no alternate is skipped, with one `[BNS]` line
+  saying so. Add an entry to `BNS.Loadouts.Alternates` if a drop or stock
+  line goes missing on your build.
 - The player-body layer's engine calls (constructing an `IsoPlayer`, the
   neutralising calls, hiding a puppet, and the attack/aim variables) are
   informed guesses that cannot be verified outside the game — that is
