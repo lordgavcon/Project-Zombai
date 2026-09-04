@@ -29,22 +29,37 @@ function BNS.Say(zombie, brain, text)
 end
 
 -- Movement --------------------------------------------------------------
+--
+-- Command budget. A shell is moved by the engine's own pathfinder, so
+-- every extra order we push at it restarts that movement mid-step --
+-- which is what made NPCs skate around instead of walking. Vanilla
+-- zombies get re-tasked a couple of times a second at most, so we hold
+-- ourselves to the same cadence: a path is issued at most every few
+-- brain ticks, and only re-issued early if the goal really moved.
+
+BNS.Programs.REPATH_TICKS = 3   -- full brain ticks (~0.5s) between path orders
+BNS.Programs.REPATH_DIST = 1.5  -- ...unless the destination moved this far
 
 function BNS.Programs.walkTo(zombie, x, y, z, run)
     local brain = BNS.brain(zombie)
-    -- Re-issuing the same destination every tick makes the engine restart
-    -- the path; only send it when the destination actually changes.
-    local same = brain and brain.pathX == x and brain.pathY == y
-        and brain.pathRun == (run == true)
-    if not same then
-        if zombie.pathToLocationF then
-            zombie:pathToLocationF(x, y, z or 0)
-        elseif zombie.pathToLocation then
-            zombie:pathToLocation(math.floor(x), math.floor(y), z or 0)
+    if brain then
+        brain.pathCooldown = (brain.pathCooldown or 0) - 1
+        local movedFar = brain.pathX == nil
+            or BNS.dist(x, y, brain.pathX, brain.pathY) >= BNS.Programs.REPATH_DIST
+        local gearChanged = brain.pathRun ~= (run == true)
+        -- Still walking the order it already has: leave it alone.
+        if brain.pathCooldown > 0 and not movedFar and not gearChanged then
+            return
         end
-        if brain then
-            brain.pathX, brain.pathY, brain.pathRun = x, y, run == true
-        end
+        brain.pathCooldown = BNS.Programs.REPATH_TICKS
+        brain.pathX, brain.pathY, brain.pathRun = x, y, run == true
+        brain.pathCount = (brain.pathCount or 0) + 1
+        brain.stopped = nil
+    end
+    if zombie.pathToLocationF then
+        zombie:pathToLocationF(x, y, z or 0)
+    elseif zombie.pathToLocation then
+        zombie:pathToLocation(math.floor(x), math.floor(y), z or 0)
     end
     if zombie.setRunning then zombie:setRunning(run == true) end
     if brain then BNS.Anim.set(zombie, brain, run and "run" or "walk") end
@@ -53,6 +68,13 @@ end
 -- Come to a halt. Attacks are gated on not running, so a program that
 -- wants to fight has to actually stop first.
 function BNS.Programs.stopMoving(zombie, brain, mode)
+    -- Halting is a one-off order, not something to repeat every tick:
+    -- re-pathing a standing NPC onto its own square 60 times a second is
+    -- itself a source of drift.
+    if brain and brain.stopped then
+        if mode and brain.animMode ~= mode then BNS.Anim.set(zombie, brain, mode) end
+        return
+    end
     if zombie.setRunning then zombie:setRunning(false) end
     if zombie.StopAllActionQueue then zombie:StopAllActionQueue() end
     -- Cancelling the path is the part that matters: a shell keeps walking
@@ -70,6 +92,8 @@ function BNS.Programs.stopMoving(zombie, brain, mode)
     if brain then
         -- Forget the remembered path so the next walkTo re-issues it.
         brain.pathX, brain.pathY, brain.pathRun = nil, nil, nil
+        brain.pathCooldown = 0
+        brain.stopped = true
         BNS.Anim.set(zombie, brain, mode or "idle")
     end
 end

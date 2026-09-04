@@ -24,16 +24,27 @@ BNS.Brain = {}
 
 local TICK_DIVIDER = 10 -- run full brain logic every N engine updates
 
-local function suppressZombie(zombie)
-    -- Re-assert every tick: keep the shell from lunging, biting or
-    -- aggroing like a zombie.
+-- Keeping the shell from acting like a zombie does not need doing sixty
+-- times a second, and setTarget(nil) every frame fights the engine's own
+-- movement bookkeeping. Re-assert a few times a second instead, and only
+-- clear state that is actually set.
+local SUPPRESS_EVERY = 10 -- engine ticks
+
+local function suppressZombie(zombie, brain)
+    brain.suppressTick = (brain.suppressTick or ZombRand(SUPPRESS_EVERY)) - 1
+    if brain.suppressTick > 0 then return end
+    brain.suppressTick = SUPPRESS_EVERY
     zombie:setUseless(true)
-    if zombie.setTarget then zombie:setTarget(nil) end
+    if zombie.getTarget and zombie.setTarget then
+        if zombie:getTarget() ~= nil then zombie:setTarget(nil) end
+    elseif zombie.setTarget then
+        zombie:setTarget(nil)
+    end
     if zombie.setAttackedBy then zombie:setAttackedBy(nil) end
 end
 
 local function updateNPC(zombie, brain)
-    suppressZombie(zombie)
+    suppressZombie(zombie, brain)
 
     brain.tick = (brain.tick or ZombRand(TICK_DIVIDER)) + 1
     -- Combat timers must count every tick for smooth attack pacing.
@@ -131,15 +142,20 @@ local function updateNPC(zombie, brain)
     local program = BNS.Programs[brain.program] or BNS.Programs[BNS.Program.WANDER]
     program(zombie, brain, ctx)
 
-    -- Anim decay: a shell that stopped moving shouldn't keep playing a
-    -- walk/run cycle (e.g. arrived at its path target between ticks).
     local x, y = zombie:getX(), zombie:getY()
     local stalled = brain.lastX and BNS.dist(x, y, brain.lastX, brain.lastY) < 0.05
-    if stalled and (brain.animMode == "walk" or brain.animMode == "run") then
+    brain.stallTicks = stalled and ((brain.stallTicks or 0) + 1) or 0
+
+    -- Anim decay: a shell that has genuinely stopped shouldn't keep
+    -- playing a walk cycle. But one slow tick is not "stopped" -- calling
+    -- it idle while the engine is still walking the character is exactly
+    -- what reads as sliding, so wait for a few, or for a real halt.
+    if (brain.stopped or brain.stallTicks >= 3)
+            and (brain.animMode == "walk" or brain.animMode == "run") then
         BNS.Anim.set(zombie, brain, "idle")
     end
     -- Stalled bandit in a program that wants to move: probably a closed
-    -- door in the way — start working it after two stalled full ticks.
+    -- door in the way — start working it after a few stalled full ticks.
     local wantsMove = brain.program == BNS.Program.WANDER
         or brain.program == BNS.Program.APPROACH
         or brain.program == BNS.Program.ATTACK
@@ -152,14 +168,10 @@ local function updateNPC(zombie, brain)
     local mayOpenDoors = BNS.isBandit(zombie)
         or brain.program == BNS.Program.SCAVENGE
         or brain.program == BNS.Program.HAUL
-    if stalled and wantsMove and mayOpenDoors and not brain.door then
-        brain.stallTicks = (brain.stallTicks or 0) + 1
-        if brain.stallTicks >= 2 then
-            brain.stallTicks = 0
-            BNS.Doors.tryStart(zombie, brain)
-        end
-    else
+    if stalled and wantsMove and mayOpenDoors and not brain.door
+            and brain.stallTicks >= 3 then
         brain.stallTicks = 0
+        BNS.Doors.tryStart(zombie, brain)
     end
     brain.lastX, brain.lastY = x, y
 

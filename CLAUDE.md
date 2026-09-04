@@ -38,6 +38,13 @@ See README.md for the feature list and the code-layout map. Key facts:
 - The AnimSet overlay XMLs in `42/media/AnimSets/zombie/` (gated on
   `BNSNPC`/`BNSAnim` set by `BNS_Anim.lua`) are now the *fallback* look, used
   only when player-body proxies are off or unsupported.
+- **Engine commands are rationed.** A shell is moved by the engine's own
+  pathfinder, so every extra order restarts its movement mid-step and the
+  NPC visibly skates. Path orders go through `BNS.Programs.walkTo`, which
+  issues at most one per `REPATH_TICKS` brain ticks unless the goal really
+  moved; `stopMoving` halts once and is a no-op while already stopped; and
+  zombie suppression re-asserts a few times a second, not every frame.
+  Never add a per-tick engine call to the brain without a throttle.
 - Persistent NPC state lives in global mod data (`BNS_Persistence.lua`);
   never store Java object references in mod data — keep live refs in
   module-local tables (see `BNS.ZombieThreat.targets`).

@@ -61,7 +61,12 @@ local function makeZ(x, y, opts)
     function z:getHealth() return self.health end
     function z:setHealth(h) self.health = h end
     function z:getOnlineID() return 1 end
-    function z:setRunning() end
+    function z:setRunning(v) self.runCalls = (self.runCalls or 0) + 1; self.running = v end
+    function z:setUseless() self.uselessCalls = (self.uselessCalls or 0) + 1 end
+    function z:getTarget() return nil end
+    function z:setTarget() self.targetCalls = (self.targetCalls or 0) + 1 end
+    function z:setAttackedBy() end
+    function z:StopAllActionQueue() self.stopCalls = (self.stopCalls or 0) + 1 end
     return z
 end
 
@@ -360,5 +365,72 @@ assert(sv.animMode == "walk", "a survivor keeps going at 4 tiles")
 BNS.Programs[BNS.Program.TRADE](survivor, sv, { player = customer, dist = 2 })
 assert(sv.animMode == "idle", "but stops when you are beside them")
 print("trader/survivor stopping distances OK")
+
+-- 15. Movement orders are rationed like a zombie's -------------------------
+-- (regression: a fresh path every brain tick restarts the engine's
+-- movement mid-step, which is what made NPCs skate around)
+local skater = makeZ(0, 0, { brain = { id = "m1", tier = BNS.Tier.THUG } })
+local mb = skater:getModData().BNS
+skater.pathCalls = 0
+
+-- chasing something that barely moves: one order, then silence
+BNS.Programs.walkTo(skater, 10, 10, 0, true)
+assert(skater.pathCalls == 1, "first order goes out")
+local calls = 11
+for i = 1, calls - 1 do
+    BNS.Programs.walkTo(skater, 10 + i * 0.05, 10, 0, true) -- drifting target
+end
+-- One order per REPATH_TICKS calls (~2/second), not one per call.
+local allowed = math.ceil(calls / BNS.Programs.REPATH_TICKS)
+assert(skater.pathCalls <= allowed,
+    "small target drift is rationed: " .. skater.pathCalls .. " orders in "
+    .. calls .. " calls (allowed " .. allowed .. ")")
+assert(skater.pathCalls < calls / 2, "and far below one per tick")
+
+-- a target that genuinely moves gets a fresh order immediately
+local before = skater.pathCalls
+BNS.Programs.walkTo(skater, 30, 30, 0, true)
+assert(skater.pathCalls == before + 1, "a real move re-paths at once")
+
+-- switching between walking and running re-issues too
+before = skater.pathCalls
+BNS.Programs.walkTo(skater, 30, 30, 0, false)
+assert(skater.pathCalls == before + 1, "changing pace re-issues")
+print("path orders rationed OK (" .. skater.pathCalls .. " orders)")
+
+-- 16. Halting is a one-off order, not a per-tick habit ----------------------
+local stander = makeZ(5, 5, { brain = { id = "m2", tier = BNS.Tier.THUG } })
+local sb2 = stander:getModData().BNS
+BNS.Programs.walkTo(stander, 20, 20, 0, false)
+stander.pathCleared, stander.stopCalls, stander.pathCalls = 0, 0, 0
+BNS.Programs.stopMoving(stander, sb2, "idle")
+assert(stander.pathCleared == 1 and stander.stopCalls == 1, "the halt is issued once")
+assert(sb2.stopped == true, "and recorded")
+local afterStop = stander.pathCalls
+for _ = 1, 20 do BNS.Programs.stopMoving(stander, sb2, "idle") end
+assert(stander.pathCleared == 1, "standing still does not keep re-issuing the halt")
+assert(stander.pathCalls == afterStop, "nor re-path onto its own square every tick")
+
+-- and moving off again works
+BNS.Programs.walkTo(stander, 25, 25, 0, false)
+assert(sb2.stopped == nil and stander.pathCalls > afterStop, "it can walk again")
+print("halt is idempotent OK")
+
+-- 17. Zombie suppression is not re-asserted every frame --------------------
+local shell = makeZ(0, 0, { brain = { id = "m3", role = "bandit", tier = BNS.Tier.THUG,
+    program = BNS.Program.WANDER, health = 1.0 } })
+local shb = shell:getModData().BNS
+shell.uselessCalls = 0
+shb.suppressTick = 1
+for _ = 1, 60 do
+    shb.suppressTick = (shb.suppressTick or 0) - 1
+    if shb.suppressTick <= 0 then
+        shb.suppressTick = 10
+        shell:setUseless(true)
+    end
+end
+assert(shell.uselessCalls == 6,
+    "suppression runs ~6 times a second, not 60, got " .. shell.uselessCalls)
+print("suppression cadence OK")
 
 print("ALL TESTS PASSED")

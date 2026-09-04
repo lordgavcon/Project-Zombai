@@ -122,6 +122,7 @@ function BNS.Debug.snapshot(player)
             warned = brain and brain.warned or false,
             grabbed = brain and brain.grabbedTimer ~= nil or false,
             door = brain and brain.door ~= nil or false,
+            paths = brain and brain.pathCount or 0,
         })
     end
     table.sort(npcs, function(a, b) return a.dist < b.dist end)
