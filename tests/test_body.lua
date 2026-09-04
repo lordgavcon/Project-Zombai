@@ -27,7 +27,9 @@ function isServer() return false end
 function isClient() return false end
 function getText(k) return k end
 function getWorld() return { getMetaGrid = function() return { getZoneAt = function() return nil end } end } end
-SandboxVars = { BNS = {} }
+-- Player bodies ship off (42.20 does not draw them), so the suites that
+-- exercise the layer have to opt in the same way a player does.
+SandboxVars = { BNS = { PlayerBodiesEnabled = true } }
 BodyPartType = setmetatable({}, { __index = function(t, k) return k end })
 function getGameTime() return { getWorldAgeHours = function() return 5 end } end
 local modDataStore = {}
@@ -222,6 +224,7 @@ print("action pulse OK")
 -- 5. Proxy lifecycle -----------------------------------------------------------------
 BNS.Body.supported = nil
 BNS.Body.hideFn = nil
+BNS.Body.hideAllowed = true
 BNS.Body.clearAll()
 createdProxies, removedProxies = {}, {}
 
@@ -262,6 +265,7 @@ print("proxy lifecycle OK")
 
 -- 6. Fallback contract: cannot hide the puppet -> no proxies at all ---------------
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = true
 createdProxies = {}
 shells = {}
 local stubborn = makeShell("n3", 100, 100, 33, { unhidable = true })
@@ -285,6 +289,7 @@ print("fallback (unhidable puppet) OK")
 
 -- 7. Fallback contract: IsoPlayer construction fails --------------------------------
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = true
 createdProxies = {}
 shells = {}
 makeShell("n4", 100, 100, 44)
@@ -297,6 +302,7 @@ print("fallback (no IsoPlayer) OK")
 
 -- 8. Actions and the animation lab ---------------------------------------------------
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = true
 shells = {}
 makeShell("n5", 100, 100, 55)
 BNS.Body.onVisual({ rows = { { id = "n5", oid = 55, x = 100, y = 100, z = 0, anim = "idle" } } })
@@ -325,6 +331,7 @@ print("actions + animation lab OK")
 
 -- 9. Interpolation moves toward the puppet without overshooting ------------------------
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = true
 shells = {}
 makeShell("n6", 100, 100, 66)
 BNS.Body.onVisual({ rows = { { id = "n6", oid = 66, x = 100, y = 100, z = 0, anim = "walk" } } })
@@ -342,6 +349,7 @@ print("interpolation OK")
 
 -- 10. No puppet found -> no proxy (never draw a body over a live zombie) ---------
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = true
 shells = {}
 createdProxies = {}
 BNS.Body.onVisual({ rows = { { id = "ghost", oid = 999, x = 500, y = 500, z = 0, anim = "walk" } } })
@@ -373,6 +381,7 @@ print("puppet matching fallbacks OK")
 
 -- 12. A hide call that "works" but leaves the zombie visible is rejected ------------
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = true
 shells = {}
 createdProxies = {}
 local liar = makeShell("liar", 40, 40, 88, { stubbornAlpha = true })
@@ -388,6 +397,7 @@ print("false-positive hiding rejected OK")
 
 -- 13. Unverifiable hiding is accepted (but flagged) ---------------------------------
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.hideVerified = nil
+BNS.Body.hideAllowed = true
 BNS.Body.clearAll(); shells = {}; createdProxies = {}
 makeShell("nogetter", 50, 50, 99, { noGetter = true })
 BNS.Body.onVisual({ rows = { { id = "nogetter", oid = 99, x = 50, y = 50, z = 0, anim = "walk" } } })
@@ -398,6 +408,7 @@ print("unverifiable hiding accepted + flagged OK")
 -- 14. Descriptor vs constructor failures are told apart -------------------------------
 local realFactory = SurvivorFactory
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = true
 shells = {}; makeShell("d1", 60, 60, 101)
 SurvivorFactory = nil
 BNS.Body.onVisual({ rows = { { id = "d1", oid = 101, x = 60, y = 60, z = 0, anim = "idle" } } })
@@ -407,6 +418,7 @@ assert(tostring(BNS.Body.lastError):find("SurvivorFactory"),
 SurvivorFactory = realFactory
 
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = true
 shells = {}; makeShell("d2", 70, 70, 102)
 proxyFailMode = true
 BNS.Body.onVisual({ rows = { { id = "d2", oid = 102, x = 70, y = 70, z = 0, anim = "idle" } } })
@@ -417,6 +429,7 @@ print("failure attribution OK")
 
 -- 15. The probe reports a line per pipeline step ---------------------------------------
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = true
 shells = {}; makeShell("p1", 80, 80, 111)
 BNS.Body.stats.snapshots = 3
 local report = BNS.Body.probe()
@@ -570,6 +583,7 @@ print("hide candidate availability OK")
 -- (the engine re-drives zombie alpha every frame, so hiding only when a
 -- 5Hz snapshot arrives lets them fade back in between updates).
 BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = true
 shells = {}; createdProxies = {}
 local mover = makeShell("m1", 200, 200, 77)
 BNS.Body.onVisual({ rows = { { id = "m1", oid = 77, x = 200, y = 200, z = 0, anim = "walk" } } })
@@ -597,6 +611,53 @@ mover.onHide = function() hidesPerFrame = hidesPerFrame + 1 end
 for _ = 1, 10 do BNS.Body.tick() end
 assert(hidesPerFrame == 10, "the hide is re-asserted every frame, got " .. hidesPerFrame)
 print("square migration + per-frame hide OK")
+
+-- 24. Shells are never hidden until a body is confirmed visible -------------------------
+-- On 42.20.4 a registered, non-controlled IsoPlayer is still not drawn, so
+-- hiding the shell left NPCs invisible. Hiding is now gated on somebody
+-- confirming they can see a body; nothing else may set that flag.
+BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = false
+BNS.Body.previewMode = false
+shells = {}; createdProxies = {}
+local unseen = makeShell("g1", 300, 300, 91)
+BNS.Body.onVisual({ rows = { { id = "g1", oid = 91, x = 300, y = 300, z = 0, anim = "walk" } } })
+assert(not unseen.hidden, "the shell stays visible while bodies are unconfirmed")
+for _ = 1, 30 do BNS.Body.tick() end
+assert(not unseen.hidden, "and the per-frame pass does not hide it either")
+assert(BNS.Body.proxies["g1"], "the proxy is still built, so it can be looked at")
+
+-- preview never hides, and clears anything left hidden
+BNS.Body.previewBodies(true)
+assert(BNS.Body.previewMode and not BNS.Body.hideAllowed, "preview builds bodies without hiding")
+BNS.Body.onVisual({ rows = { { id = "g1", oid = 91, x = 300, y = 300, z = 0, anim = "walk" } } })
+for _ = 1, 10 do BNS.Body.tick() end
+assert(not unseen.hidden, "preview leaves the shell visible")
+
+-- only the confirmation turns hiding on
+assert(BNS.Body.confirmBodiesVisible(), "confirmation is available from preview")
+assert(BNS.Body.hideAllowed, "and it is what enables hiding")
+BNS.Body.onVisual({ rows = { { id = "g1", oid = 91, x = 301, y = 300 } } })
+BNS.Body.tick()
+assert(unseen.hidden, "once confirmed, the shell is hidden behind the body")
+
+-- disabling gives the shells back rather than leaving nothing on screen
+unseen.hidden = true
+BNS.Body.unhideAll()
+assert(not unseen.hidden, "turning the layer off restores the shells")
+print("hide gate + preview OK")
+
+-- 25. With the sandbox option off, the layer does nothing at all ------------------------
+BNS.Body.supported = nil; BNS.Body.hideFn = nil; BNS.Body.clearAll()
+BNS.Body.hideAllowed = false; BNS.Body.previewMode = false
+SandboxVars.BNS.PlayerBodiesEnabled = false
+shells = {}; createdProxies = {}
+local plain = makeShell("g2", 400, 400, 92)
+BNS.Body.onVisual({ rows = { { id = "g2", oid = 92, x = 400, y = 400, z = 0, anim = "walk" } } })
+assert(#createdProxies == 0, "no proxies are built when the option is off")
+assert(not plain.hidden, "and the shell is left alone, so the NPC is visible")
+SandboxVars.BNS.PlayerBodiesEnabled = true
+print("sandbox off = shells only OK")
 
 
 print("ALL TESTS PASSED")

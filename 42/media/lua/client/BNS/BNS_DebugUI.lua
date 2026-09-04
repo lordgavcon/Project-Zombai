@@ -242,9 +242,20 @@ function BNS.DebugUI:createChildren()
     end))
     table.insert(self.animButtons, addButton("Reset bodies", 110, 4, 0, function()
         BNS.Body.clearAll()
+        BNS.Body.unhideAll()
         BNS.Body.supported = nil
         BNS.Body.hideFn = nil
         BNS.DebugUI.onResult({ text = "player bodies reset - they rebuild on the next update" })
+    end))
+    -- Preview answers the one question the probe cannot: does this build
+    -- draw a non-controlled IsoPlayer at all? Shells stay visible, so it
+    -- can never leave NPCs invisible.
+    table.insert(self.animButtons, addButton("Body preview", 110, 5, 0, function()
+        local msg = BNS.Body.previewBodies(not BNS.Body.previewMode)
+        BNS.DebugUI.onResult({ text = msg })
+    end))
+    table.insert(self.animButtons, addButton("I see bodies", 110, 5, 1, function()
+        BNS.DebugUI.onResult({ text = BNS.Body.confirmBodiesVisible() })
     end))
 
     -- Scenario buttons
@@ -394,9 +405,15 @@ function BNS.DebugUI:rebuildList()
         end
 
     elseif self.tab == "Anim lab" then
-        self.list:addItem("Bandits are drawn as player characters mirroring hidden shells.", {})
-        self.list:addItem("Not working? Press PROBE - it reports exactly which step fails.", {})
-        self.list:addItem("If an action does nothing, cycle to the next candidate call.", {})
+        self.list:addItem("NPCs are drawn as restyled shells by default: visible, living", {})
+        self.list:addItem("skin and clean clothing, but zombie animations.", {})
+        self.list:addItem("", {})
+        self.list:addItem("Player bodies are experimental. On 42.20 the game does not draw", {})
+        self.list:addItem("these characters, so shells are never hidden until you confirm.", {})
+        self.list:addItem("1. Body preview - builds bodies WITHOUT hiding the shells.", {})
+        self.list:addItem("2. Look at a bandit. A second, player-looking body beside it?", {})
+        self.list:addItem("3. If yes, press 'I see bodies' and the shells get hidden.", {})
+        self.list:addItem("PROBE reports every step; cycle candidates if an action no-ops.", {})
         self.list:addItem("", {})
         for _, line in ipairs(BNS.Body.labStatus()) do
             self.list:addItem(line, {})

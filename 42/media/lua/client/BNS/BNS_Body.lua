@@ -30,6 +30,15 @@ BNS.Body.stats = { snapshots = 0, rows = 0, lastSnapshotTick = -1, ticks = 0 }
 BNS.Body.hideVerified = nil -- true / false / nil (build gives us no way to check)
 BNS.Body.attachVia = nil  -- which registration call put proxies in the world
 
+-- Hiding the shell is what makes an NPC invisible when the proxy is not
+-- actually drawn, and on 42.20.4 it is not: the character registers with
+-- a square and the renderer still ignores it. So hiding is off until
+-- somebody confirms, with their own eyes, that a player body appears --
+-- the Anim lab's body preview. Until then proxies are built alongside
+-- visible shells, which is the worst case we are willing to ship.
+BNS.Body.hideAllowed = false
+BNS.Body.previewMode = false
+
 local LERP = 0.35 -- how fast a proxy catches up to its puppet per tick
 
 -- Candidate engine calls -------------------------------------------------
@@ -86,9 +95,11 @@ BNS.Body.ActionCandidates = {
 BNS.Body.chosen = { swing = 1, shoot = 1, hit = 1, grabbed = 1 }
 
 local function enabled()
+    if BNS.Body.supported == false then return false end
+    if BNS.Body.previewMode then return true end
     local sv = SandboxVars and SandboxVars.BNS
     if sv and sv.PlayerBodiesEnabled == false then return false end
-    return BNS.Body.supported ~= false
+    return true
 end
 
 local function disable(reason)
@@ -106,6 +117,7 @@ local function disable(reason)
         end)
     end
     BNS.Body.clearAll()
+    BNS.Body.unhideAll()
 end
 
 -- Puppet lookup ------------------------------------------------------------
@@ -282,6 +294,10 @@ function BNS.Body.attachProxy(proxy, x, y, z)
         BNS.Body.attachVia = BNS.Body.attachVia or "constructor"
         return true
     end
+    -- Apply every registration this build offers, not just enough to make
+    -- membership verify. Last run stopped as soon as the proxy appeared in
+    -- the square's moving-object list -- and the renderer still ignored it,
+    -- so membership is necessary but plainly not sufficient.
     local tried = {}
     for _, candidate in ipairs(BNS.Body.AttachCandidates) do
         local usable = false
@@ -289,14 +305,14 @@ function BNS.Body.attachProxy(proxy, x, y, z)
         if usable then
             table.insert(tried, candidate.name)
             pcall(function() candidate.apply(proxy, sq, cell) end)
-            if BNS.Body.verifyAttached(proxy) then
-                if not BNS.Body.attachVia then
-                    BNS.Body.attachVia = table.concat(tried, " + ")
-                    BNS.log("proxies attached to the world with " .. BNS.Body.attachVia)
-                end
-                return true
-            end
         end
+    end
+    if BNS.Body.verifyAttached(proxy) then
+        if not BNS.Body.attachVia then
+            BNS.Body.attachVia = table.concat(tried, " + ")
+            BNS.log("proxies attached to the world with " .. BNS.Body.attachVia)
+        end
+        return true
     end
     return false, "tried " .. (#tried > 0 and table.concat(tried, ", ") or "nothing usable")
 end
@@ -396,7 +412,7 @@ function BNS.Body.applyRow(row)
         -- frame, flickering.
         local proxy = BNS.Body.createProxy(row)
         if not proxy then return end
-        if not BNS.Body.hidePuppet(puppet) then
+        if BNS.Body.hideAllowed and not BNS.Body.hidePuppet(puppet) then
             pcall(function() proxy:removeFromWorld() end)
             disable("cannot hide puppets (tried "
                 .. #BNS.Body.HideCandidates .. " methods)")
@@ -492,6 +508,27 @@ function BNS.Body.clearAll()
     BNS.Body.proxies = {}
 end
 
+-- Undo hiding, so turning the layer off (or a build that never drew the
+-- proxies) gives the shells back rather than leaving nothing on screen.
+function BNS.Body.unhideAll()
+    local cell = getCell()
+    local list = cell and cell:getZombieList() or nil
+    if not list then return 0 end
+    local n = 0
+    for i = 0, list:size() - 1 do
+        local z = list:get(i)
+        local ok, brain = pcall(function() return BNS.brain(z) end)
+        if ok and brain then
+            pcall(function()
+                if z.setAlphaAndTarget then z:setAlphaAndTarget(1) end
+                if z.setInvisible then z:setInvisible(false) end
+            end)
+            n = n + 1
+        end
+    end
+    return n
+end
+
 -- Smooth the 5Hz snapshots into continuous motion so proxies walk
 -- rather than teleport between updates.
 function BNS.Body.tick()
@@ -519,7 +556,7 @@ function BNS.Body.tick()
         -- Re-assert the hide every frame. The engine re-drives a zombie's
         -- alpha each frame, so hiding at snapshot rate (5Hz) lets the
         -- shell fade back in between updates -- read in-game as flicker.
-        if entry.puppet then
+        if BNS.Body.hideAllowed and entry.puppet then
             pcall(function() BNS.Body.hidePuppet(entry.puppet) end)
         end
     end
@@ -534,6 +571,39 @@ end
 -- The candidate lists above are informed guesses. These helpers let the
 -- debug panel step through them in-game and report which call actually
 -- moves the model, so the winner can be pinned as the default.
+
+-- Body preview: build proxies but leave the shells visible, so "does this
+-- build draw a non-controlled IsoPlayer at all?" becomes one look instead
+-- of another round of guessing. If a player body appears beside each
+-- bandit, the layer works and hiding can be switched on. If nothing
+-- appears, the renderer ignores these characters and no amount of
+-- registration will change that.
+function BNS.Body.previewBodies(on)
+    BNS.Body.previewMode = on and true or false
+    BNS.Body.hideAllowed = false
+    BNS.Body.supported = nil
+    BNS.Body.lastError = nil
+    BNS.Body.clearAll()
+    BNS.Body.unhideAll()
+    if BNS.Body.previewMode then
+        return "body preview ON - shells stay visible. Watch a bandit: a second, "
+            .. "player-looking body means proxies render and hiding can be turned on. "
+            .. "No second body means this build will not draw them."
+    end
+    return "body preview OFF - proxies cleared, shells visible"
+end
+
+-- Only the person looking at the screen can answer this, so only they can
+-- turn hiding on. Nothing else in the mod sets hideAllowed.
+function BNS.Body.confirmBodiesVisible()
+    if not BNS.Body.previewMode then
+        return "run the body preview first, then confirm what you saw"
+    end
+    BNS.Body.hideAllowed = true
+    BNS.Body.previewMode = false
+    BNS.log("player bodies confirmed visible - shells will now be hidden")
+    return "confirmed - shells will now be hidden behind the player bodies"
+end
 
 function BNS.Body.labStatus()
     local lines = {}
@@ -682,6 +752,8 @@ function BNS.Body.probe()
             attachedCount == 0 and " - nothing will be drawn or animated" or ""))
     end
     add("     attach method: " .. tostring(BNS.Body.attachVia or "none yet"))
+    add("     shells hidden: " .. (BNS.Body.hideAllowed and "yes"
+        or "NO - not until a player body is confirmed visible (Anim lab > Body preview)"))
     add(string.format("state: %s, proxies %d, hiding %s",
         BNS.Body.supported == false and ("DISABLED - " .. tostring(BNS.Body.lastError))
             or (BNS.Body.supported == true and "enabled" or "not yet attempted"),

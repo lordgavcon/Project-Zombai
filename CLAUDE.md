@@ -128,3 +128,17 @@ Two invariants worth keeping in mind when touching the debug code:
   snapshot arrives. Re-asserting at snapshot rate reads in-game as
   flickering NPCs. The puppet reference is cached on the proxy entry so
   this costs no zombie-list scan per frame.
+- **Never hide a shell on the strength of an inference.** Every step of
+  the player-body pipeline can verify green — descriptor, constructor,
+  square membership, hiding — and the engine still not draw the character,
+  because B42 does not appear to render non-controlled `IsoPlayer`
+  instances. Hiding is therefore gated on `BNS.Body.hideAllowed`, which
+  only `BNS.Body.confirmBodiesVisible()` sets, and only after a human has
+  looked at the screen during *Body preview*. Nothing else may set it.
+  The failure mode this prevents — invisible NPCs — is worse than the
+  feature being off.
+- **A verification is only as good as what it observes.** "The call did
+  not error" did not prove hiding worked; "membership in the square's
+  moving-object list" did not prove the character was drawn. When the
+  only real observer is a person looking at the game, build the
+  observation into the debug panel and ask, rather than inferring.

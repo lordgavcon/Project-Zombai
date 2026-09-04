@@ -182,19 +182,21 @@ Non-admin requests are dropped and logged.
   instance) and an id with no alternate is skipped, with one `[BNS]` line
   saying so. Add an entry to `BNS.Loadouts.Alternates` if a drop or stock
   line goes missing on your build.
-- On 42.20.4 the Anim lab probe confirms `SurvivorFactory.CreateSurvivor`,
-  `IsoPlayer.new(cell, desc, x, y, z)`, and puppet hiding via both
-  `setAlphaAndTarget(0)` and `setInvisible(true)`; `setModelVisible` does
-  not exist and is skipped. Constructing a character is **not** the same
-  as putting it in the world, though: a proxy must be registered with a
-  grid square (`BNS.Body.AttachCandidates`, verified by actual membership
-  in the square's moving-object list) or the engine neither draws nor
-  animates it, and you see the restyled shell with zombie animations
-  instead. The probe reports `proxies registered with a square: N of M`
-  and the attach method used — check that line first if NPCs still look
-  like zombies. What remains unpinned is the per-action attack/aim
-  variables; cycle those candidates in the Anim lab until the model moves,
-  then make the winner the default.
+- **Player bodies are off by default and do not work on 42.20.4.** The
+  Anim lab probe confirms every individual step —
+  `SurvivorFactory.CreateSurvivor`, `IsoPlayer.new(cell, desc, x, y, z)`,
+  registration with a grid square (verified by membership in the square's
+  moving-object list), and puppet hiding via `setAlphaAndTarget(0)` — and
+  the character is still never drawn. The engine appears not to render
+  non-controlled `IsoPlayer` instances at all, and no amount of
+  registration changes that. So the shipping look is the **restyled
+  shell**: living skin, clean clothing, no wounds, zombie animations.
+  The layer is kept behind `BNS.PlayerBodiesEnabled` (default off) and,
+  even when enabled, **never hides a shell** until you confirm you can see
+  a body: Anim lab → *Body preview* builds proxies alongside visible
+  shells, and *I see bodies* is the only thing that turns hiding on. That
+  ordering exists because hiding an undrawn proxy's shell is what made
+  NPCs invisible.
   Hair and beard model names are left empty (`BNS.Loadouts.HairStyles`)
   until identified in-game, so hair may currently differ between clients.
 - The fallback path's `Bob_*` clip names in `media/AnimSets/zombie/*/bns_*.xml`
