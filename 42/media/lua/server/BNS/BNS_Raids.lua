@@ -231,7 +231,7 @@ BNS.Programs[BNS.Program.RAID] = function(zombie, brain, ctx)
         else
             brain.program = BNS.Program.FLEE
         end
-        brain.fleeUntil = 1200
+        brain.fleeUntil = BNS.Programs.FLEE_TICKS * 3
     elseif ZombRand(120) == 0 then
         BNS.Programs.walkTo(zombie,
             raid.x + ZombRand(-6, 7), raid.y + ZombRand(-6, 7), 0, false)

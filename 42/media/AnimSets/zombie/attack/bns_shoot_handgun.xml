@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- BNS: flinch mid-stride, so a hit reads while they are moving. -->
+<!-- BNS: pistol shot, with the player's recoil. -->
 <animNode>
-	<m_Name>bns_hit_w</m_Name>
-	<m_AnimName>Bob_HitReact_01</m_AnimName>
+	<m_Name>bns_shoot_handgun</m_Name>
+	<m_AnimName>Bob_AttackHandgun</m_AnimName>
 	<m_Looped>false</m_Looped>
 	<m_BlendTime>0.15</m_BlendTime>
-	<m_Priority>16</m_Priority>
+	<m_Priority>21</m_Priority>
 	<m_Conditions>
 		<m_Name>BNSNPC</m_Name>
 		<m_Type>STRING</m_Type>
@@ -14,6 +14,11 @@
 	<m_Conditions>
 		<m_Name>BNSAnim</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_Value>hit</m_Value>
+		<m_Value>shoot</m_Value>
+	</m_Conditions>
+	<m_Conditions>
+		<m_Name>Weapon</m_Name>
+		<m_Type>STRING</m_Type>
+		<m_Value>handgun</m_Value>
 	</m_Conditions>
 </animNode>

@@ -16,6 +16,7 @@ if isClient() then return end
 
 require "BNS/BNS_Core"
 require "BNS/BNS_Loadouts"
+require "BNS/BNS_Anim"
 require "BNS/BNS_Archetypes"
 require "BNS/BNS_POIs"
 require "BNS/BNS_Persistence"
@@ -122,6 +123,7 @@ function BNS.Debug.snapshot(player)
             warned = brain and brain.warned or false,
             grabbed = brain and brain.grabbedTimer ~= nil or false,
             door = brain and brain.door ~= nil or false,
+            paths = brain and brain.pathCount or 0,
         })
     end
     table.sort(npcs, function(a, b) return a.dist < b.dist end)
@@ -220,11 +222,30 @@ function BNS.Debug.forceProgram(player, args)
     -- forced program starts clean.
     brain.warned, brain.warnTimer, brain.intent = nil, nil, nil
     brain.scav, brain.door, brain.raid = nil, nil, nil
-    if args.program == BNS.Program.FLEE then brain.fleeUntil = 600 end
+    if args.program == BNS.Program.FLEE then brain.fleeUntil = BNS.Programs.FLEE_TICKS end
     if args.program == BNS.Program.SCAVENGE and BNS.Scavenge then
         BNS.Scavenge.tryStart(shell, brain)
     end
     note(player, brain.name .. " -> " .. tostring(args.program))
+end
+
+-- Force an animation mode so each AnimSet node can be checked against a
+-- live shell. A mode that visibly does nothing means its node is not
+-- matching -- wrong clip name, or a condition the shell does not satisfy.
+function BNS.Debug.forceAnim(player, args)
+    local shell = BNS.Debug.findNPC(args.id)
+    if not shell then note(player, "NPC not loaded: " .. tostring(args.id)) return end
+    local brain = BNS.brain(shell)
+    local mode = args.mode
+    if not BNS.Anim.Modes[mode] then note(player, "unknown anim mode: " .. tostring(mode)) return end
+    if mode == "swing" or mode == "shoot" or mode == "hit" then
+        BNS.Anim.pulse(shell, brain, mode)
+    else
+        BNS.Anim.set(shell, brain, mode)
+    end
+    note(player, string.format("%s -> BNSAnim=%s, Weapon=%s (%s)",
+        brain.name, mode, tostring(brain.animWeapon),
+        brain.weapon and tostring(brain.weapon.item) or "unarmed"))
 end
 
 function BNS.Debug.teleport(player, args)
@@ -372,7 +393,8 @@ function BNS.Debug.spawnLootBox(player)
     end
     for _, entry in ipairs({ "Base.Antibiotics", "Base.TinnedBeans", "Base.HuntingKnife",
             "Base.Bullets9mm", "Base.CrumpledPaper", "Base.Spoon", "Base.Plank" }) do
-        container:AddItem(entry)
+        local id = BNS.Loadouts.item(entry)
+        if id then container:AddItem(id) end
     end
     sq:getModData().BNS_Looted = nil
     note(player, "stocked a container at " .. sq:getX() .. "," .. sq:getY())
@@ -488,6 +510,7 @@ local HANDLERS = {
     debugSnapshot = function(p) BNS.Debug.snapshot(p) end,
     debugSpawn    = BNS.Debug.spawnNPC,
     debugProgram  = BNS.Debug.forceProgram,
+    debugAnim     = BNS.Debug.forceAnim,
     debugTeleport = BNS.Debug.teleport,
     debugKill     = BNS.Debug.killNPC,
     debugClear    = function(p) BNS.Debug.clearNPCs(p) end,

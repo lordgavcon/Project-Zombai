@@ -99,6 +99,16 @@ local function barricadeObject(square, obj, player0)
     end
 end
 
+-- Supply ids are resolved against the running build once, so a line whose
+-- item B42 renamed is dropped rather than rejected on every AddItem.
+local resolvedSupplies = nil
+local function supplies()
+    if not resolvedSupplies then
+        resolvedSupplies = BNS.Loadouts.filter(BNS.Loadouts.BaseSupplies)
+    end
+    return resolvedSupplies
+end
+
 local function stockContainers(square, base)
     for i = 0, square:getObjects():size() - 1 do
         local obj = square:getObjects():get(i)
@@ -106,7 +116,7 @@ local function stockContainers(square, base)
         if container then
             -- One or two supply lines per container so loot spreads out.
             for _ = 1, ZombRand(1, 3) do
-                local s = BNS.Loadouts.pick(BNS.Loadouts.BaseSupplies)
+                local s = BNS.Loadouts.pick(supplies())
                 if s then
                     for _ = 1, ZombRand(s.count) + 1 do
                         container:AddItem(s.item)

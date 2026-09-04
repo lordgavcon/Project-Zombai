@@ -14,6 +14,7 @@ require "BNS/BNS_Loadouts"
 require "BNS/BNS_Archetypes"
 require "BNS/BNS_Persistence"
 require "BNS/BNS_Anim"
+require "BNS/BNS_Look"
 
 BNS.Spawner = {}
 
@@ -105,12 +106,14 @@ function BNS.Spawner.materialise(rec)
     rec.weapon = brain.weapon
     zombie:getModData().BNS = brain
     BNS.Anim.init(zombie, brain)
+    -- Stop it looking like a corpse: living skin, no blood, real hair.
+    BNS.Look.apply(zombie, brain)
     -- Vehicle owners get their ride placed back beside them.
     if BNS.Vehicles then BNS.Vehicles.onMaterialise(zombie, brain, rec) end
 
     -- Show the weapon in hand.
     if brain.weapon and brain.weapon.item then
-        local w = instanceItem(brain.weapon.item)
+        local w = instanceItem(BNS.Loadouts.item(brain.weapon.item))
         if w then
             zombie:setPrimaryHandItem(w)
             if brain.weapon.gun and w.setTwoHandWeapon then
@@ -199,7 +202,7 @@ function BNS.Spawner.spawnSurvivorNear(player)
     rec.weapon = BNS.Spawner.rollWeapon(BNS.Tier.CIVILIAN)
     if isTrader then
         rec.stock = {}
-        for _, s in ipairs(BNS.Loadouts.TraderStock) do
+        for _, s in ipairs(BNS.Loadouts.filter(BNS.Loadouts.TraderStock)) do
             if ZombRand(100) < 60 then
                 table.insert(rec.stock, { item = s.item, value = s.value, count = ZombRand(s.max) + 1 })
             end
@@ -217,21 +220,24 @@ function BNS.Spawner.dropLoot(zombie, brain)
     local drops = BNS.Loadouts.Drops[brain.tier]
     if drops then
         for _, d in ipairs(drops) do
-            if ZombRand(100) < d.chance then
+            local id = BNS.Loadouts.item(d.item)
+            if id and ZombRand(100) < d.chance then
                 for _ = 1, (d.count or 1) do
-                    sq:AddWorldInventoryItem(d.item, 0.2, 0.2, 0)
+                    sq:AddWorldInventoryItem(id, 0.2, 0.2, 0)
                 end
             end
         end
     end
     -- Their weapon always drops.
     if brain.weapon and brain.weapon.item then
-        sq:AddWorldInventoryItem(brain.weapon.item, 0.3, 0.3, 0)
+        local wid = BNS.Loadouts.item(brain.weapon.item)
+        if wid then sq:AddWorldInventoryItem(wid, 0.3, 0.3, 0) end
     end
     -- Everything they scavenged drops too.
     if brain.loot then
         for _, fullType in ipairs(brain.loot) do
-            sq:AddWorldInventoryItem(fullType, 0.4, 0.4, 0)
+            local id = BNS.Loadouts.item(fullType)
+            if id then sq:AddWorldInventoryItem(id, 0.4, 0.4, 0) end
         end
     end
 end

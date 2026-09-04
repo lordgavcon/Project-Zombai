@@ -15,6 +15,7 @@
 if isClient() then return end
 
 require "BNS/BNS_Core"
+require "BNS/BNS_Loadouts"
 require "BNS/BNS_Anim"
 require "BNS/BNS_Programs"
 require "BNS/BNS_Scavenge"
@@ -224,7 +225,10 @@ function BNS.Vehicles.onMaterialise(zombie, brain, rec)
             if vehicle.getModData then vehicle:getModData().BNS_Owner = ownerTag(brain) end
             local trunk = BNS.Vehicles.getTrunk(vehicle)
             if trunk and rec.trunk then
-                for _, fullType in ipairs(rec.trunk) do trunk:AddItem(fullType) end
+                for _, fullType in ipairs(rec.trunk) do
+                    local id = BNS.Loadouts.item(fullType)
+                    if id then trunk:AddItem(id) end
+                end
             end
             rec.trunk = nil
         end

@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- BNS: player-style flinch when a zombie lands a hit on an NPC
-     (BNSAnim=hit, pulsed by the threat scan then reset). -->
+<!-- BNS: player flinch when something lands a hit (one-shot pulse). -->
 <animNode>
 	<m_Name>bns_hit</m_Name>
-	<m_AnimName>Bob_HitReaction</m_AnimName>
-	<m_Looped>False</m_Looped>
-	<m_Priority>14</m_Priority>
+	<m_AnimName>Bob_HitReact_01</m_AnimName>
+	<m_Looped>false</m_Looped>
+	<m_BlendTime>0.15</m_BlendTime>
+	<m_Priority>16</m_Priority>
 	<m_Conditions>
 		<m_Name>BNSNPC</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_StringValue>true</m_StringValue>
+		<m_Value>true</m_Value>
 	</m_Conditions>
 	<m_Conditions>
 		<m_Name>BNSAnim</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_StringValue>hit</m_StringValue>
+		<m_Value>hit</m_Value>
 	</m_Conditions>
 </animNode>

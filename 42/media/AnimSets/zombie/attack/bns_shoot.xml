@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- BNS: one-shot pistol fire using the player's shoot animation
-     (BNSAnim=shoot, pulsed by BNS_Anim.lua then reset). -->
+<!-- BNS: long-gun shot. -->
 <animNode>
 	<m_Name>bns_shoot</m_Name>
-	<m_AnimName>Bob_ShootPistol</m_AnimName>
-	<m_Looped>False</m_Looped>
-	<m_Priority>12</m_Priority>
+	<m_AnimName>Bob_AttackRifle</m_AnimName>
+	<m_Looped>false</m_Looped>
+	<m_BlendTime>0.15</m_BlendTime>
+	<m_Priority>20</m_Priority>
 	<m_Conditions>
 		<m_Name>BNSNPC</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_StringValue>true</m_StringValue>
+		<m_Value>true</m_Value>
 	</m_Conditions>
 	<m_Conditions>
 		<m_Name>BNSAnim</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_StringValue>shoot</m_StringValue>
+		<m_Value>shoot</m_Value>
 	</m_Conditions>
 </animNode>

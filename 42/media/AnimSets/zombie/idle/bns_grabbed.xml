@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- BNS: sustained struggle while a zombie holds the NPC
-     (BNSAnim=grabbed until the grip breaks). -->
+<!-- BNS: struggling while a zombie has hold of them. -->
 <animNode>
 	<m_Name>bns_grabbed</m_Name>
-	<m_AnimName>Bob_GrabbedFront</m_AnimName>
-	<m_Looped>True</m_Looped>
-	<m_Priority>15</m_Priority>
+	<m_AnimName>Bob_BiteDefend</m_AnimName>
+	<m_Looped>true</m_Looped>
+	<m_BlendTime>0.15</m_BlendTime>
+	<m_Priority>17</m_Priority>
 	<m_Conditions>
 		<m_Name>BNSNPC</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_StringValue>true</m_StringValue>
+		<m_Value>true</m_Value>
 	</m_Conditions>
 	<m_Conditions>
 		<m_Name>BNSAnim</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_StringValue>grabbed</m_StringValue>
+		<m_Value>grabbed</m_Value>
 	</m_Conditions>
 </animNode>

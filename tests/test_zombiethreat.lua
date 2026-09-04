@@ -50,13 +50,23 @@ local function makeZ(x, y, opts)
     function z:getZ() return 0 end
     function z:isDead() return self.dead or self.health <= 0 end
     function z:getModData() return self.modData end
-    function z:pathToLocationF(px, py) self.pathedTo = { px, py } end
+    function z:pathToLocationF(px, py)
+        self.pathedTo = { px, py }
+        self.pathCalls = (self.pathCalls or 0) + 1
+    end
+    function z:clearPath() self.pathCleared = (self.pathCleared or 0) + 1 end
+    function z:setMoving(v) self.moving = v end
     function z:playSound(s) table.insert(self.sounds, s) end
     function z:setVariable(k, v) self.vars[k] = v end
     function z:getHealth() return self.health end
     function z:setHealth(h) self.health = h end
     function z:getOnlineID() return 1 end
-    function z:setRunning() end
+    function z:setRunning(v) self.runCalls = (self.runCalls or 0) + 1; self.running = v end
+    function z:setUseless() self.uselessCalls = (self.uselessCalls or 0) + 1 end
+    function z:getTarget() return nil end
+    function z:setTarget() self.targetCalls = (self.targetCalls or 0) + 1 end
+    function z:setAttackedBy() end
+    function z:StopAllActionQueue() self.stopCalls = (self.stopCalls or 0) + 1 end
     return z
 end
 
@@ -168,5 +178,259 @@ fb.program = BNS.Program.FIGHTZ
 BNS.Programs[BNS.Program.FIGHTZ](fighter, fb, { dist = 999 })
 assert(fighter.pathedTo, "FIGHTZ paths toward its zombie target")
 print("FIGHTZ program OK")
+
+-- 7. Fleeing is short and ends in a stand ---------------------------------
+-- (regression: apply() used to reset fleeUntil on every ~1/s scan, and the
+-- scan lures the horde along behind the NPC, so they fled forever)
+local runner = makeZ(0, 0, { brain = { id = "f1", role = "bandit", tier = BNS.Tier.THUG,
+    program = BNS.Program.WANDER, health = 1.0 } })
+local fb = runner:getModData().BNS
+fakeCell.zombies = { runner }
+for i = 1, 9 do table.insert(fakeCell.zombies, makeZ(1 + i * 0.1, 0)) end
+
+local verdict = BNS.ZombieThreat.assess(0, 0, zlist(9), 1)
+assert(verdict == "flee", "9 zombies vs 1 is a flee")
+fb.standGround = false
+BNS.ZombieThreat.apply(runner, fb, "flee", { obj = fakeCell.zombies[2] }, { x = 5, y = 0 })
+assert(fb.program == BNS.Program.FLEE, "enters FLEE")
+local firstTimer = fb.fleeUntil
+assert(firstTimer == BNS.Programs.FLEE_TICKS, "flee is time-boxed, got " .. tostring(firstTimer))
+
+-- a later scan while still fleeing must NOT restart the countdown
+fb.fleeUntil = firstTimer - 10
+BNS.ZombieThreat.apply(runner, fb, "flee", { obj = fakeCell.zombies[2] }, { x = 5, y = 0 })
+assert(fb.fleeUntil == firstTimer - 10, "the flee timer is never restarted mid-flight")
+
+-- run it down: they stop, and a cooldown starts
+local ticks = 0
+while fb.program == BNS.Program.FLEE and ticks < 500 do
+    BNS.Programs[BNS.Program.FLEE](runner, fb, { player = nil, dist = 999 })
+    ticks = ticks + 1
+end
+assert(ticks == firstTimer - 10, "flee lasts exactly its remaining ticks, got " .. ticks)
+assert(fb.program == BNS.Program.WANDER, "stops running")
+assert(fb.fleeCooldown and fb.fleeCooldown > 0, "a stand-your-ground window opens")
+
+-- still outnumbered, but now they turn and fight instead of bolting again
+BNS.ZombieThreat.apply(runner, fb, "flee", { obj = fakeCell.zombies[2] }, { x = 5, y = 0 })
+assert(fb.program == BNS.Program.FIGHTZ,
+    "after fleeing they stand and fight, got " .. tostring(fb.program))
+assert(fb.standGround == true, "committed to the fight")
+
+-- and once the area is clear the commitment resets for next time
+BNS.ZombieThreat.apply(runner, fb, "clear", nil, nil)
+assert(fb.standGround == nil, "next threat episode re-rolls")
+print("flee is bounded and ends in a stand OK (" .. ticks .. " ticks)")
+
+-- 8. No attacking at a dead sprint ------------------------------------------
+local sprinter = makeZ(0, 0, { brain = { id = "s1", tier = BNS.Tier.THUG, health = 1.0 } })
+local sb = sprinter:getModData().BNS
+sb.weapon = { item = "Base.Axe", dmg = 0.26, range = 1.3, gun = false }
+sb.warned = true
+local prey = makeZ(1, 0)
+sb.animMode = "run"
+sb.attackTimer = 0
+BNS.Combat.attackZombie(sprinter, sb, prey)
+assert(prey.health == 2.0, "no swing while running")
+assert(not BNS.Combat.canAttack(sb), "canAttack says no while running")
+
+sb.animMode = "walk"
+sb.attackTimer = 0
+BNS.Combat.attackZombie(sprinter, sb, prey)
+assert(prey.health < 2.0, "walking is fine to swing from")
+assert(BNS.Combat.canAttack(sb), "canAttack allows walking")
+
+sb.animMode = "idle"
+assert(BNS.Combat.canAttack(sb), "and standing still")
+print("attacks gated on not running OK")
+
+-- 9. FIGHTZ closes at a run, then plants before swinging ---------------------
+local fighter = makeZ(0, 0, { brain = { id = "z9", tier = BNS.Tier.THUG, health = 1.0 } })
+local zb = fighter:getModData().BNS
+zb.weapon = { item = "Base.Axe", dmg = 0.26, range = 1.3, gun = false }
+zb.program = BNS.Program.FIGHTZ
+
+local farTarget = makeZ(10, 0)
+BNS.ZombieThreat.targets["z9"] = farTarget
+zb.attackTimer = 0
+BNS.Programs[BNS.Program.FIGHTZ](fighter, zb, { dist = 999 })
+assert(zb.animMode == "run", "closes at a run")
+assert(farTarget.health == 2.0, "and does not swing while closing")
+
+local closeTarget = makeZ(1, 0)
+BNS.ZombieThreat.targets["z9"] = closeTarget
+zb.attackTimer = 0
+BNS.Programs[BNS.Program.FIGHTZ](fighter, zb, { dist = 999 })
+assert(zb.animMode ~= "run", "stops on arrival, mode is " .. tostring(zb.animMode))
+assert(closeTarget.health < 2.0, "then swings")
+print("FIGHTZ close-then-plant OK")
+
+-- 10. Wandering rests instead of marching forever -------------------------
+-- (regression: nothing ever cancelled a path, so shells walked to their
+-- last target for ever and NPCs never stood still)
+local realRand = ZombRand
+local function forceRand(fn) ZombRand = fn end
+local function restoreRand() ZombRand = realRand end
+
+local ambler = makeZ(0, 0, { brain = { id = "w1", role = BNS.Role.SURVIVOR,
+    tier = BNS.Tier.CIVILIAN, program = BNS.Program.WANDER, health = 1.0 } })
+local wb = ambler:getModData().BNS
+BNS.ZombieThreat.targets["w1"] = nil
+
+-- arrive at the target, and take the rest branch
+wb.targetX, wb.targetY = 0, 0
+forceRand(function(a, b) if b then return a end return 0 end) -- rolls "rest"
+BNS.Programs[BNS.Program.WANDER](ambler, wb, { player = nil, dist = 999 })
+restoreRand()
+assert(wb.restUntil and wb.restUntil > 0, "arriving starts a rest")
+assert(wb.animMode == "idle", "and they stand idle, got " .. tostring(wb.animMode))
+assert(ambler.pathCleared and ambler.pathCleared > 0, "the path is actually cancelled")
+assert(wb.pathX == nil, "and the remembered path is forgotten")
+
+-- while resting they stay put
+local restLen = wb.restUntil
+ambler.pathedTo = nil
+for _ = 1, restLen - 1 do
+    BNS.Programs[BNS.Program.WANDER](ambler, wb, { player = nil, dist = 999 })
+end
+assert(wb.restUntil == 1, "rest counts down, at " .. tostring(wb.restUntil))
+assert(wb.animMode == "idle", "still idle throughout the rest")
+
+-- rest over: they move again
+forceRand(function(a, b) if b then return a end return 99 end) -- rolls "no rest"
+BNS.Programs[BNS.Program.WANDER](ambler, wb, { player = nil, dist = 999 })
+restoreRand()
+assert(wb.restUntil == nil, "rest ends")
+assert(wb.animMode == "walk", "and they amble off walking, got " .. tostring(wb.animMode))
+print("wander rests then resumes OK (rest " .. restLen .. " ticks)")
+
+-- 11. A player standing nearby must not suppress resting -------------------
+local watched = makeZ(0, 0, { brain = { id = "w2", role = BNS.Role.SURVIVOR,
+    tier = BNS.Tier.CIVILIAN, program = BNS.Program.WANDER, health = 1.0 } })
+local wb2 = watched:getModData().BNS
+wb2.targetX, wb2.targetY = 0, 0
+forceRand(function(a, b) if b then return a end return 0 end)
+BNS.Programs[BNS.Program.WANDER](watched, wb2, { player = makeZ(2, 0), dist = 2 })
+restoreRand()
+assert(wb2.restUntil and wb2.restUntil > 0,
+    "they still rest while a player watches from 2 tiles away")
+
+-- but a tracked zombie cancels the rest
+BNS.ZombieThreat.targets["w2"] = makeZ(1, 0)
+BNS.Programs[BNS.Program.WANDER](watched, wb2, { player = nil, dist = 999 })
+assert(wb2.restUntil == nil, "a zombie nearby ends the rest")
+BNS.ZombieThreat.targets["w2"] = nil
+print("rest suppressed by zombies, not by players OK")
+
+-- 12. walkTo does not restart an unchanged path ------------------------------
+local walker = makeZ(0, 0, { brain = { id = "w3", tier = BNS.Tier.CIVILIAN } })
+local w3 = walker:getModData().BNS
+walker.pathCalls = 0
+BNS.Programs.walkTo(walker, 10, 10, 0, false)
+BNS.Programs.walkTo(walker, 10, 10, 0, false)
+BNS.Programs.walkTo(walker, 10, 10, 0, false)
+assert(walker.pathCalls == 1, "same destination is issued once, got " .. walker.pathCalls)
+BNS.Programs.walkTo(walker, 11, 10, 0, false)
+assert(walker.pathCalls == 2, "a new destination is issued")
+print("walkTo path churn avoided OK")
+
+-- 13. Traders hold still for a customer ---------------------------------------
+local trader = makeZ(0, 0, { brain = { id = "t1", role = BNS.Role.TRADER,
+    tier = BNS.Tier.CIVILIAN, program = BNS.Program.TRADE, health = 1.0 } })
+local tb = trader:getModData().BNS
+tb.restUntil = 50
+local customer = makeZ(3, 0)
+BNS.Programs[BNS.Program.TRADE](trader, tb, { player = customer, dist = 3 })
+assert(tb.animMode == "idle", "trader stops for a customer at 3 tiles")
+assert(trader.pathCleared and trader.pathCleared > 0, "and cancels its path")
+assert(tb.restUntil == nil, "waiting on the customer, not resting")
+
+-- out of reach: back to wandering
+trader.pathCalls = 0
+forceRand(function(a, b) if b then return a end return 99 end)
+tb.targetX, tb.targetY = 50, 50
+BNS.Programs[BNS.Program.TRADE](trader, tb, { player = customer, dist = 20 })
+restoreRand()
+assert(tb.animMode == "walk", "wanders again once nobody is close")
+
+-- 14. Survivors only stop when you are right beside them -----------------------
+local survivor = makeZ(0, 0, { brain = { id = "s2", role = BNS.Role.SURVIVOR,
+    tier = BNS.Tier.CIVILIAN, program = BNS.Program.TRADE, health = 1.0 } })
+local sv = survivor:getModData().BNS
+forceRand(function(a, b) if b then return a end return 99 end)
+sv.targetX, sv.targetY = 50, 50
+BNS.Programs[BNS.Program.TRADE](survivor, sv, { player = customer, dist = 4 })
+restoreRand()
+assert(sv.animMode == "walk", "a survivor keeps going at 4 tiles")
+BNS.Programs[BNS.Program.TRADE](survivor, sv, { player = customer, dist = 2 })
+assert(sv.animMode == "idle", "but stops when you are beside them")
+print("trader/survivor stopping distances OK")
+
+-- 15. Movement orders are rationed like a zombie's -------------------------
+-- (regression: a fresh path every brain tick restarts the engine's
+-- movement mid-step, which is what made NPCs skate around)
+local skater = makeZ(0, 0, { brain = { id = "m1", tier = BNS.Tier.THUG } })
+local mb = skater:getModData().BNS
+skater.pathCalls = 0
+
+-- chasing something that barely moves: one order, then silence
+BNS.Programs.walkTo(skater, 10, 10, 0, true)
+assert(skater.pathCalls == 1, "first order goes out")
+local calls = 11
+for i = 1, calls - 1 do
+    BNS.Programs.walkTo(skater, 10 + i * 0.05, 10, 0, true) -- drifting target
+end
+-- One order per REPATH_TICKS calls (~2/second), not one per call.
+local allowed = math.ceil(calls / BNS.Programs.REPATH_TICKS)
+assert(skater.pathCalls <= allowed,
+    "small target drift is rationed: " .. skater.pathCalls .. " orders in "
+    .. calls .. " calls (allowed " .. allowed .. ")")
+assert(skater.pathCalls < calls / 2, "and far below one per tick")
+
+-- a target that genuinely moves gets a fresh order immediately
+local before = skater.pathCalls
+BNS.Programs.walkTo(skater, 30, 30, 0, true)
+assert(skater.pathCalls == before + 1, "a real move re-paths at once")
+
+-- switching between walking and running re-issues too
+before = skater.pathCalls
+BNS.Programs.walkTo(skater, 30, 30, 0, false)
+assert(skater.pathCalls == before + 1, "changing pace re-issues")
+print("path orders rationed OK (" .. skater.pathCalls .. " orders)")
+
+-- 16. Halting is a one-off order, not a per-tick habit ----------------------
+local stander = makeZ(5, 5, { brain = { id = "m2", tier = BNS.Tier.THUG } })
+local sb2 = stander:getModData().BNS
+BNS.Programs.walkTo(stander, 20, 20, 0, false)
+stander.pathCleared, stander.stopCalls, stander.pathCalls = 0, 0, 0
+BNS.Programs.stopMoving(stander, sb2, "idle")
+assert(stander.pathCleared == 1 and stander.stopCalls == 1, "the halt is issued once")
+assert(sb2.stopped == true, "and recorded")
+local afterStop = stander.pathCalls
+for _ = 1, 20 do BNS.Programs.stopMoving(stander, sb2, "idle") end
+assert(stander.pathCleared == 1, "standing still does not keep re-issuing the halt")
+assert(stander.pathCalls == afterStop, "nor re-path onto its own square every tick")
+
+-- and moving off again works
+BNS.Programs.walkTo(stander, 25, 25, 0, false)
+assert(sb2.stopped == nil and stander.pathCalls > afterStop, "it can walk again")
+print("halt is idempotent OK")
+
+-- 17. Zombie suppression is not re-asserted every frame --------------------
+local shell = makeZ(0, 0, { brain = { id = "m3", role = "bandit", tier = BNS.Tier.THUG,
+    program = BNS.Program.WANDER, health = 1.0 } })
+local shb = shell:getModData().BNS
+shell.uselessCalls = 0
+shb.suppressTick = 1
+for _ = 1, 60 do
+    shb.suppressTick = (shb.suppressTick or 0) - 1
+    if shb.suppressTick <= 0 then
+        shb.suppressTick = 10
+        shell:setUseless(true)
+    end
+end
+assert(shell.uselessCalls == 6,
+    "suppression runs ~6 times a second, not 60, got " .. shell.uselessCalls)
+print("suppression cadence OK")
 
 print("ALL TESTS PASSED")

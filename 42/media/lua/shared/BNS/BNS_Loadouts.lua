@@ -144,3 +144,75 @@ function BNS.Loadouts.pick(list)
     if not list or #list == 0 then return nil end
     return list[ZombRand(#list) + 1]
 end
+
+-- Item id resolution ----------------------------------------------------
+--
+-- None of the ids above can be verified offline, and B42 renamed a number
+-- of B41 items (the first in-game run produced four
+-- "ItemContainer.AddItem: can't find Base.WaterBottleFull" errors). So
+-- every id is checked against the running build once: if it is missing,
+-- a known alternate is used, and if there is no alternate the item is
+-- simply skipped rather than handed to the engine to reject.
+
+-- requested id -> ids to try instead, in order.
+BNS.Loadouts.Alternates = {
+    ["Base.WaterBottleFull"] = { "Base.WaterBottle", "Base.WaterBottlePlastic" },
+    ["Base.WhiskeyFull"]     = { "Base.Whiskey", "Base.WhiskeyBottle" },
+    ["Base.Cigarettes"]      = { "Base.CigarettePack", "Base.Cigarette", "Base.CigaretteCarton" },
+    ["Base.Seeds"]           = { "farming.CabbageBagSeed", "farming.CarrotBagSeed" },
+    ["Base.TinnedBeans"]     = { "Base.CannedBeans", "Base.BeansCan" },
+    ["Base.CannedChili"]     = { "Base.CannedChilli", "Base.TinnedBeans" },
+    ["Base.PillsVitamins"]   = { "Base.VitaminsPills", "Base.Vitamins" },
+    ["Base.223Bullets"]      = { "Base.223Box", "Base.556Bullets" },
+    ["Base.PetrolCan"]       = { "Base.EmptyPetrolCan", "Base.GasCan" },
+}
+
+local resolvedItems = {}
+
+local function buildHasItem(id)
+    -- Offline (tests) there is no ScriptManager; assume the id is fine so
+    -- the suites exercise behaviour rather than this lookup.
+    if not ScriptManager or not ScriptManager.instance then return true end
+    local ok, item = pcall(function() return ScriptManager.instance:getItem(id) end)
+    return ok and item ~= nil
+end
+
+-- Returns a full type this build actually has, or nil.
+function BNS.Loadouts.item(id)
+    if not id then return nil end
+    local cached = resolvedItems[id]
+    if cached ~= nil then
+        if cached == false then return nil end
+        return cached
+    end
+    if buildHasItem(id) then
+        resolvedItems[id] = id
+        return id
+    end
+    for _, alt in ipairs(BNS.Loadouts.Alternates[id] or {}) do
+        if buildHasItem(alt) then
+            resolvedItems[id] = alt
+            BNS.log("item " .. id .. " is missing on this build - using " .. alt)
+            return alt
+        end
+    end
+    resolvedItems[id] = false
+    BNS.log("item " .. id .. " is missing on this build and has no alternate - skipped")
+    return nil
+end
+
+-- Drop the lines whose item this build doesn't have, so a stock list or
+-- loot table never carries an id that will only fail later.
+function BNS.Loadouts.filter(list)
+    local out = {}
+    for _, entry in ipairs(list or {}) do
+        local id = BNS.Loadouts.item(entry.item)
+        if id then
+            local copy = {}
+            for k, v in pairs(entry) do copy[k] = v end
+            copy.item = id
+            table.insert(out, copy)
+        end
+    end
+    return out
+end

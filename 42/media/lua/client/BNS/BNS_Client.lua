@@ -96,11 +96,7 @@ function BNS.Client.onServerCommand(module, command, args)
             player:setHaloNote(getText("UI_BNS_TradeRejected"), 255, 200, 100, 300)
         end
 
-    elseif command == "npcVisual" then
-        if BNS.Body then BNS.Body.onVisual(args) end
 
-    elseif command == "npcAnim" then
-        if BNS.Body then BNS.Body.onAnim(args) end
 
     elseif command == "poiAmbience" then
         BNS.Client.playAmbience(args)

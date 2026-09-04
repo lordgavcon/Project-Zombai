@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- BNS: player walk cycle instead of the zombie shamble. -->
+<!-- BNS: pistol aim stance while warning or covering a player. -->
 <animNode>
-	<m_Name>bns_walk</m_Name>
-	<m_AnimName>Bob_Walk</m_AnimName>
+	<m_Name>bns_aim_handgun</m_Name>
+	<m_AnimName>Bob_IdleAimHandgun</m_AnimName>
 	<m_Looped>true</m_Looped>
 	<m_BlendTime>0.15</m_BlendTime>
-	<m_Priority>10</m_Priority>
+	<m_Priority>12</m_Priority>
 	<m_Conditions>
 		<m_Name>BNSNPC</m_Name>
 		<m_Type>STRING</m_Type>
@@ -14,6 +14,11 @@
 	<m_Conditions>
 		<m_Name>BNSAnim</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_Value>walk</m_Value>
+		<m_Value>aim</m_Value>
+	</m_Conditions>
+	<m_Conditions>
+		<m_Name>Weapon</m_Name>
+		<m_Type>STRING</m_Type>
+		<m_Value>handgun</m_Value>
 	</m_Conditions>
 </animNode>

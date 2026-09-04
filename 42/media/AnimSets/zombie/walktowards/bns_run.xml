@@ -1,19 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- BNS: NPC shells run with the player's run cycle (BNSAnim=run). -->
+<!-- BNS: player run cycle. -->
 <animNode>
 	<m_Name>bns_run</m_Name>
 	<m_AnimName>Bob_Run</m_AnimName>
-	<m_Looped>True</m_Looped>
+	<m_Looped>true</m_Looped>
+	<m_BlendTime>0.15</m_BlendTime>
 	<m_Priority>11</m_Priority>
-	<m_DeferredBoneAxis>Y</m_DeferredBoneAxis>
 	<m_Conditions>
 		<m_Name>BNSNPC</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_StringValue>true</m_StringValue>
+		<m_Value>true</m_Value>
 	</m_Conditions>
 	<m_Conditions>
 		<m_Name>BNSAnim</m_Name>
 		<m_Type>STRING</m_Type>
-		<m_StringValue>run</m_StringValue>
+		<m_Value>run</m_Value>
 	</m_Conditions>
 </animNode>

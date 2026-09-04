@@ -66,7 +66,6 @@ function BNS.Options()
         scavenging       = BNS.SV("ScavengingEnabled", true),
         vehicles         = BNS.SV("NPCVehiclesEnabled", true),
         poiSigns         = BNS.SV("POISignsEnabled", true),
-        playerBodies     = BNS.SV("PlayerBodiesEnabled", true),
     }
 end
 

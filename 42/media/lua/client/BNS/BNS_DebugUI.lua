@@ -15,7 +15,6 @@ require "ISUI/ISScrollingListBox"
 require "ISUI/ISButton"
 require "BNS/BNS_Core"
 require "BNS/BNS_Client"
-require "BNS/BNS_Body"
 
 BNS.DebugUI = ISCollapsableWindow:derive("BNS_DebugUI")
 
@@ -94,7 +93,7 @@ end
 function BNS.DebugUI.onResult(args)
     if instance and args and args.text then
         table.insert(instance.results, 1, args.text)
-        while #instance.results > 8 do table.remove(instance.results) end
+        while #instance.results > 40 do table.remove(instance.results) end
     end
 end
 
@@ -220,25 +219,20 @@ function BNS.DebugUI:createChildren()
         self:send("debugZombies", { count = 10 })
     end))
 
-    -- Animation lab: cycle and fire each candidate call in-game.
+    -- Animation lab: force an animation mode on the selected NPC so each
+    -- AnimSet node can be checked against the shell in-game.
     self.animButtons = {}
-    local actions = { "swing", "shoot", "hit", "grabbed" }
-    for i, action in ipairs(actions) do
-        table.insert(self.animButtons, addButton("Test " .. action, 110, i - 1, 0, function()
-            local ok, msg = BNS.Body.labTest(action)
-            BNS.DebugUI.onResult({ text = (ok and "" or "no-op: ") .. tostring(msg) })
-        end))
-        table.insert(self.animButtons, addButton("Next " .. action, 110, i - 1, 1, function()
-            local name = BNS.Body.labCycle(action)
-            BNS.DebugUI.onResult({ text = action .. " -> " .. tostring(name) })
-        end))
+    local modes = { "idle", "walk", "run", "aim", "swing", "shoot", "hit", "grabbed" }
+    for i, mode in ipairs(modes) do
+        table.insert(self.animButtons, addButton(mode, 90, (i - 1) % 4, math.floor((i - 1) / 4),
+            function()
+                if not self.selectedId then
+                    BNS.DebugUI.onResult({ text = "select an NPC on the NPCs tab first" })
+                    return
+                end
+                self:send("debugAnim", { id = self.selectedId, mode = mode })
+            end))
     end
-    table.insert(self.animButtons, addButton("Reset bodies", 110, 4, 0, function()
-        BNS.Body.clearAll()
-        BNS.Body.supported = nil
-        BNS.Body.hideFn = nil
-        BNS.DebugUI.onResult({ text = "player bodies reset - they rebuild on the next update" })
-    end))
 
     -- Scenario buttons
     self.scenarioButtons = {}
@@ -387,12 +381,13 @@ function BNS.DebugUI:rebuildList()
         end
 
     elseif self.tab == "Anim lab" then
-        self.list:addItem("Bandits are drawn as player characters mirroring hidden shells.", {})
-        self.list:addItem("If an action does nothing, cycle to the next candidate call.", {})
+        self.list:addItem("NPCs are IsoZombie shells playing player animation clips,", {})
+        self.list:addItem("selected by the BNSNPC / BNSAnim / Weapon variables through the", {})
+        self.list:addItem("AnimSet overlays in media/AnimSets/zombie/.", {})
         self.list:addItem("", {})
-        for _, line in ipairs(BNS.Body.labStatus()) do
-            self.list:addItem(line, {})
-        end
+        self.list:addItem("Select an NPC on the NPCs tab, then force a mode below and watch", {})
+        self.list:addItem("it. A mode that does nothing means that node is not matching:", {})
+        self.list:addItem("check the clip name and the conditions in its XML.", {})
         self.list:addItem("", {})
         for _, line in ipairs(self.results) do
             self.list:addItem("  " .. line, { colour = { 0.7, 1.0, 0.7 } })
