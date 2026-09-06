@@ -35,16 +35,19 @@ local CHALLENGE_COOLDOWN  = 90  -- brain ticks (~15s) between challenges
 
 -- Decoration pools ---------------------------------------------------------
 
+-- Every id here is refuse: spent brass, torn cloth, ash, litter. These
+-- pools exist to say "armed people live here", and nothing in them should
+-- be worth picking up -- a stronghold's actual supplies belong in its
+-- containers (BNS_Bases), not strewn across the floor.
 local POOLS = {
     casings = { "Base.BulletShell", "Base.9mmShellCasing", "Base.ShellCasing",
-                "Base.ShotgunShell", "Base.Bullets9mm" },
-    rags    = { "Base.RippedSheetsDirty", "Base.RippedSheets", "Base.DirtyRag",
-                "Base.Bandage" },
+                "Base.ShotgunShellEmpty" },
+    rags    = { "Base.RippedSheetsDirty", "Base.RippedSheets", "Base.DirtyRag" },
     refuse  = { "Base.EmptyTinCan", "Base.TinCanEmpty", "Base.BrokenGlass",
-                "Base.GarbageBag", "Base.Cigarettes" },
+                "Base.GarbageBag", "Base.CigaretteButt" },
     camp    = { "Base.Charcoal", "Base.CharcoalStick", "Base.Ash", "Base.Logs",
                 "Base.WoodenStick", "Base.Twigs" },
-    broken  = { "Base.BrokenGlass", "Base.WoodenStick", "Base.Plank" },
+    broken  = { "Base.BrokenGlass", "Base.WoodenStick" },
 }
 
 local CORE_POOLS     = { "camp", "refuse", "casings" }
@@ -67,6 +70,12 @@ function BNS.Signs.resolvePool(name)
     end
     resolved[name] = out
     return out
+end
+
+-- The ids a pool offers before the build filter, so the suites can assert
+-- on what we are willing to place at all.
+function BNS.Signs.poolIds(name)
+    return POOLS[name] or {}
 end
 
 function BNS.Signs.clearPoolCache()

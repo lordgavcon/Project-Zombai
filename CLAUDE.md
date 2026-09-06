@@ -109,3 +109,11 @@ Two invariants worth keeping in mind when touching the debug code:
   moving-object list" did not prove the character was drawn. When the
   only real observer is a person looking at the game, build the
   observation into the debug panel and ask, rather than inferring.
+- **Loot belongs in containers.** A stronghold's supplies go into real
+  containers (`BNS_Bases.stockContainers` searches the square, then a few
+  tiles around it) and, failing that, into a crate the code places itself
+  — never onto the floor. `AddWorldInventoryItem` at a POI is for the
+  ground *cues* only, and those pools are refuse by contract
+  (`tests/test_signs.lua` asserts no pool offers anything worth picking
+  up). Stocking is capped per POI so a stronghold doesn't become a
+  warehouse.

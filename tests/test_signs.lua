@@ -39,13 +39,28 @@ end
 
 -- Only these item ids "exist" in this fake build; everything the mod
 -- lists as a candidate but that is missing here must never be placed.
+-- A deliberately partial build: the pools list several plausible ids per
+-- cue and only the ones a build actually has may be placed.
 local KNOWN_ITEMS = {
-    ["Base.Bullets9mm"] = true,
+    ["Base.BulletShell"] = true,
     ["Base.RippedSheets"] = true,
-    ["Base.Bandage"] = true,
-    ["Base.Cigarettes"] = true,
-    ["Base.Plank"] = true,
+    ["Base.EmptyTinCan"] = true,
+    ["Base.BrokenGlass"] = true,
+    ["Base.Charcoal"] = true,
     ["Base.WoodenStick"] = true,
+    -- Supplies that go *into* containers, kept separate from the ground
+    -- cues above: these must never appear on the floor.
+    ["Base.TinnedBeans"] = true,
+    ["Base.CannedChili"] = true,
+    ["Base.CannedCorn"] = true,
+    ["Base.WaterBottle"] = true,
+    ["Base.Bandage"] = true,
+    ["Base.PillsVitamins"] = true,
+    ["Base.Bullets9mm"] = true,
+    ["Base.ShotgunShells"] = true,
+    ["Base.PetrolCan"] = true,
+    ["Base.Nails"] = true,
+    ["Base.Plank"] = true,
 }
 ScriptManager = { instance = { getItem = function(_, fullType)
     if KNOWN_ITEMS[fullType] then return { type = fullType } end
@@ -290,5 +305,117 @@ local repeatSq = furnishedSquare(3, 0)
 BNS.Bases.onLoadGridsquare(repeatSq)
 assert(#repeatSq.contents == 0, "an already-processed square is skipped")
 print("core/approach zoning OK (fortify core only, decorate both)")
+
+-- Ground cues are refuse, never loot ---------------------------------------------
+-- A stronghold's supplies belong in its containers. Anything worth
+-- picking up on the floor reads as scattered loot, which is the thing
+-- these cues must not become.
+local VALUABLES = {
+    "Bullets", "Shells", "Bandage", "Cigarettes$", "Plank", "Money",
+    "Food", "Pills", "Antibiotics", "Whiskey", "Water",
+}
+for _, poolName in ipairs({ "casings", "rags", "refuse", "camp", "broken" }) do
+    BNS.Signs.clearPoolCache()
+    for _, id in ipairs(BNS.Signs.poolIds(poolName)) do
+        for _, bad in ipairs(VALUABLES) do
+            assert(not id:find(bad),
+                "decoration pool '" .. poolName .. "' offers " .. id
+                    .. ", which is loot, not refuse")
+        end
+    end
+end
+print("ground cues are refuse only OK")
+
+-- Supplies land in containers, not on the floor -----------------------------------
+-- A stronghold's stores used to be stocked only when a container happened
+-- to be on the very square that streamed in; anything else a player saw
+-- lying about read as loot on the floor.
+BNS.Signs.clearPoolCache()
+
+local world = {}
+local function makeContainerSquare(x, y)
+    local sq = makeSquare(x, y)
+    local items = {}
+    sq.contents = items
+    table.insert(sq.objects, { getContainer = function()
+        return { AddItem = function(_, ft) table.insert(items, ft) end,
+                 getItems = function()
+                     return { size = function() return #items end,
+                              get = function(_, i) return items[i + 1] end } end }
+    end })
+    world[x .. "," .. y] = sq
+    return sq
+end
+local placedObjects = {}
+local function makeBareSquare(x, y)
+    local sq = makeSquare(x, y)
+    sq.contents = {}
+    function sq:AddSpecialObject(o) table.insert(self.objects, o); table.insert(placedObjects, o) end
+    function sq:RemoveTileObject(o)
+        for i = #self.objects, 1, -1 do if self.objects[i] == o then table.remove(self.objects, i) end end
+    end
+    function sq:transmitRemoveItemFromSquare() end
+    world[x .. "," .. y] = sq
+    return sq
+end
+function getSquare(x, y, z) return world[x .. "," .. y] end
+
+-- 1. A container two tiles away is used instead of the floor.
+local hq2 = newBase(1000, 0, 10)
+state.bases["Test POI"] = hq2
+local shelf = makeContainerSquare(1002, 0)
+local bare = makeBareSquare(1000, 0)
+BNS.Bases.onLoadGridsquare(bare)
+assert(#shelf.contents > 0, "supplies go into a container a couple of tiles away")
+assert(#bare.floor == 0, "and nothing of value is dropped on the square itself")
+
+-- 2. With nothing to store things in, the garrison puts a crate down.
+IsoSpriteManager = { instance = { getSprite = function(_, n)
+    return n == "crated_01_08" and { name = n } or nil
+end } }
+local crateItems = {}
+IsoObject = { new = function(square, sprite, name)
+    return { sprite = sprite, getContainer = function()
+        return { AddItem = function(_, ft) table.insert(crateItems, ft) end,
+                 getItems = function()
+                     return { size = function() return #crateItems end,
+                              get = function(_, i) return crateItems[i + 1] end } end }
+    end }
+end }
+local hq3 = newBase(2000, 0, 10)
+state.bases["Test POI"] = hq3
+local empty = makeBareSquare(2000, 0)
+BNS.Bases.onLoadGridsquare(empty)
+assert(#crateItems > 0, "a crate is placed and stocked when there is nowhere else")
+assert(#empty.floor == 0, "still nothing on the floor")
+assert(BNS.Bases.crateSprite == "crated_01_08", "and it remembers the sprite that worked")
+assert(hq3.crates == 1, "the crate is counted against the per-POI cap")
+
+-- 3. An object that is not actually a container is taken back out again.
+BNS.Bases.crateSprite = nil
+IsoObject = { new = function() return { getContainer = function() return nil end } end }
+local hq4 = newBase(3000, 0, 10)
+state.bases["Test POI"] = hq4
+placedObjects = {}
+local stubborn = makeBareSquare(3000, 0)
+BNS.Bases.onLoadGridsquare(stubborn)
+assert(#stubborn.objects == 0, "furniture that holds nothing is not left lying around the POI")
+assert(#stubborn.floor == 0, "and supplies are withheld rather than dropped")
+assert((hq4.crates or 0) == 0, "a failed placement does not count as a crate")
+
+-- 4. A POI does not become a warehouse.
+BNS.Bases.crateSprite = nil
+IsoSpriteManager = nil
+local hq5 = newBase(4000, 0, 40)
+state.bases["Test POI"] = hq5
+local total = 0
+for i = 1, 60 do
+    local sq = makeContainerSquare(4000 + i, 0)
+    BNS.Bases.onLoadGridsquare(sq)
+    total = total + #sq.contents
+end
+assert(hq5.supplyLines <= 24, "stocking is capped per POI, got " .. tostring(hq5.supplyLines))
+assert(total > 0, "but the stronghold is stocked at all")
+print("POI supplies go into containers OK (" .. hq5.supplyLines .. " lines capped)")
 
 print("ALL TESTS PASSED")
