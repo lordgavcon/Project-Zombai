@@ -125,3 +125,10 @@ Two invariants worth keeping in mind when touching the debug code:
   Fortifying and stocking are gated on it; the approach ring is measured
   from the building's centre. Never reintroduce a radius test for what
   counts as inside a stronghold.
+- **The engagement telegraph is a warning shot, not a shout.** A gun-armed
+  bandit opens with `BNS.Combat.warningShot` — the real held weapon, its
+  own sound via `getSwingSound()`, no damage roll — and `warnTimer` holds
+  damage off for `BNS.Programs.WARN_TICKS` (240 engine ticks = 4s).
+  `warnTimer` counts *engine* ticks, not brain ticks. Melee bandits have
+  nothing to fire and fall back to the shouted line. Being attacked first
+  skips the telegraph entirely.

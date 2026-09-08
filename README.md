@@ -55,13 +55,15 @@ sync (zombies already sync). Consequences you should know about:
   zombies claw/grab the NPC (through the same damage path players' weapons
   use against NPCs) and lures the crowd onto them so hordes physically
   converge.
-- **Warning shouts:** every fresh bandit engagement opens with a shouted
-  warning ("Drop your weapon, NOW!") and a ~2.5 second hold during which no
-  damage is dealt — gunners stand and aim, melee bandits close in without
-  swinging. The first shot of an engagement also takes a 50% accuracy
-  penalty, so armed bandits telegraph danger instead of instantly killing.
-  A bandit you attack first skips the hold (being shot at is its own
-  warning) but still shouts.
+- **The warning shot:** every fresh bandit engagement opens with a
+  **4 second hold** during which nothing they do can hurt you. An armed
+  bandit opens it by putting a round past you — fired from the gun they
+  are actually carrying, using that weapon's own sound, doing no damage,
+  and loud enough to bring zombies down on both of you. Then they hold
+  their aim. Bandits carrying only a melee weapon have nothing to fire, so
+  they shout instead and close in without swinging. Four seconds is enough
+  to run, draw, or start talking. A bandit you attack first skips the hold
+  entirely — being shot at is its own warning.
 
 ## Installation
 
@@ -141,7 +143,7 @@ Debug panel*). Five tabs:
 | World | Live/virtual NPC counts, sandbox options (click a boolean to toggle it live), every known point of interest (fortified ones flagged with their garrison size) with **Teleport to POI** and Fortify nearest, and detected player bases with raid-cooldown countdowns |
 | NPCs | Every NPC with program, health, archetype, distance and flags; select one to Go to / Bring here / Kill / cycle its program / give it a vehicle / swarm it with zombies. Also toggles the overlay |
 | Spawn | One click per archetype (farmer, city folk, thug, police, firefighter, ex-military) plus survivor and trader, 1–5 at a time as a squad; raid me, fortify a POI, drop a loot box, spawn a horde, clear all NPCs |
-| Scenarios | Ten one-click behaviour tests — warning shout, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |
+| Scenarios | Ten one-click behaviour tests — warning shot, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |
 | Anim lab | Player-body status, per-action buttons to fire and cycle the candidate engine calls for swing/shoot/hit/grabbed, and **PROBE** — a pass/fail line for every step of the pipeline (are snapshots arriving, does `SurvivorFactory` exist, does `IsoPlayer.new` construct, can a puppet be found and actually hidden), which is the fastest way to turn "bandits still look like zombies" into a specific missing call |
 | Log | The mod's own `[BNS]` event log, newest first, without tailing `console.txt` |
 

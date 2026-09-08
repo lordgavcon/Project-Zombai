@@ -266,12 +266,26 @@ local function warnLine(brain)
     return getText("UI_BNS_WarnCivilian")
 end
 
-function BNS.Programs.startWarning(zombie, brain)
+-- How long a bandit holds off after the warning, in engine ticks
+-- (BNS_Brain counts warnTimer down every tick, 60/s).
+BNS.Programs.WARN_TICKS = 240 -- 4 seconds
+
+-- The telegraph before a bandit commits. An armed bandit puts a round
+-- past you from the gun they are actually carrying -- no damage, but
+-- real gunshot noise, which also brings zombies. Someone with only a
+-- weapon in hand shouts instead, since they have no other way to say
+-- "back off" before swinging.
+function BNS.Programs.startWarning(zombie, brain, player)
     if brain.warned or brain.warnTimer then return end
-    brain.warnTimer = 150 -- ~2.5s
-    brain.firstShot = true
-    brain.speechCooldown = 0
-    BNS.Say(zombie, brain, warnLine(brain))
+    brain.warnTimer = BNS.Programs.WARN_TICKS
+    local fired = false
+    if player and brain.weapon and brain.weapon.gun then
+        fired = BNS.Combat.warningShot(zombie, brain, player)
+    end
+    if not fired then
+        brain.speechCooldown = 0
+        BNS.Say(zombie, brain, warnLine(brain))
+    end
 end
 
 local function endEngagement(brain)
@@ -287,7 +301,7 @@ BNS.Programs[BNS.Program.ATTACK] = function(zombie, brain, ctx)
         endEngagement(brain)
         return
     end
-    BNS.Programs.startWarning(zombie, brain)
+    BNS.Programs.startWarning(zombie, brain, p)
     local w = brain.weapon or {}
     if not brain.warned then
         -- Warning phase: gunners stand and level their weapon; melee

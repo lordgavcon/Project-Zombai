@@ -67,6 +67,8 @@ local function makeZ(x, y, opts)
     function z:setTarget() self.targetCalls = (self.targetCalls or 0) + 1 end
     function z:setAttackedBy() end
     function z:StopAllActionQueue() self.stopCalls = (self.stopCalls or 0) + 1 end
+    function z:getPrimaryHandItem() return self.hand end
+    function z:faceThisObject(o) self.facing = o end
     return z
 end
 
@@ -432,5 +434,76 @@ end
 assert(shell.uselessCalls == 6,
     "suppression runs ~6 times a second, not 60, got " .. shell.uselessCalls)
 print("suppression cadence OK")
+
+-- The warning: a real shot from the gun they carry, then 4 seconds ------------------
+local function makeTarget(x, y)
+    local p = { x = x, y = y, hits = {} }
+    function p:getX() return self.x end
+    function p:getY() return self.y end
+    function p:getZ() return 0 end
+    function p:isDead() return false end
+    function p:isSneaking() return false end
+    function p:getBodyDamage()
+        return {
+            getBodyPart = function()
+                return { AddDamage = function(_, n) table.insert(p.hits, n) end,
+                         setScratched = function() end }
+            end,
+            Update = function() end,
+        }
+    end
+    return p
+end
+
+local gunner = { id = "g1", role = BNS.Role.BANDIT, tier = BNS.Tier.MILITIA,
+                 health = 1.0, program = BNS.Program.ATTACK,
+                 weapon = { item = "Base.Shotgun", gun = true, dmg = 0.5,
+                            range = 8, sound = "ShotgunShot", hit = 100 } }
+local gz = makeZ(10, 10, { brain = gunner })
+-- The gun actually in their hands names its own sound.
+gz.hand = { getSwingSound = function() return "ShotgunFire" end }
+local victim = makeTarget(13, 10)
+
+BNS.Programs.startWarning(gz, gunner, victim)
+assert(#gz.sounds == 1, "the warning is a shot, not silence")
+assert(gz.sounds[1] == "ShotgunFire",
+    "fired with the held weapon's own sound, got " .. tostring(gz.sounds[1]))
+assert(gz.vars.BNSAnim == "shoot", "and it plays the firing animation")
+assert(gz.facing == victim, "aimed toward the player")
+assert(#victim.hits == 0, "a warning shot never damages")
+assert(gunner.warnTimer == 240, "4 seconds at 60 ticks/s, got " .. tostring(gunner.warnTimer))
+assert(not gunner.warned, "and they are not yet committed")
+
+-- Nothing lands during those 4 seconds, however often combat is called.
+for _ = 1, 239 do
+    gunner.warnTimer = gunner.warnTimer - 1
+    gunner.attackTimer = 0
+    BNS.Combat.attack(gz, gunner, victim)
+end
+assert(#victim.hits == 0, "no damage during the warning window")
+gunner.warnTimer = gunner.warnTimer - 1
+if gunner.warnTimer <= 0 then gunner.warnTimer = nil; gunner.warned = true end
+assert(gunner.warned, "after 4 seconds they commit")
+
+gunner.attackTimer = 0
+gunner.animMode = "idle"
+BNS.Combat.attack(gz, gunner, victim)
+assert(#victim.hits > 0, "and then shots land normally")
+print("warning shot + 4s delay OK")
+
+-- A second engagement does not re-warn until the first one ends.
+local before = #gz.sounds
+BNS.Programs.startWarning(gz, gunner, victim)
+assert(#gz.sounds == before, "no second warning shot while already committed")
+
+-- Melee bandits have nothing to fire, so they still shout.
+local thug = { id = "t1", role = BNS.Role.BANDIT, tier = BNS.Tier.THUG,
+               health = 1.0, program = BNS.Program.ATTACK, speechCooldown = 0,
+               weapon = { item = "Base.BaseballBat", dmg = 0.16, range = 1.4 } }
+local tz = makeZ(10, 10, { brain = thug })
+BNS.Programs.startWarning(tz, thug, victim)
+assert(#tz.sounds == 0, "an unarmed-of-guns bandit fires nothing")
+assert(thug.warnTimer == 240, "but still telegraphs for the same 4 seconds")
+print("melee telegraph OK")
 
 print("ALL TESTS PASSED")
