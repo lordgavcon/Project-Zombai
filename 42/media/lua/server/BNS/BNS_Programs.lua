@@ -254,17 +254,9 @@ end
 
 -- ATTACK ----------------------------------------------------------------
 
--- Every fresh engagement opens with a warning shout and a short hold
--- during which no damage is dealt, so armed bandits telegraph danger
--- before the first shot or swing. The timer itself counts down every
--- engine tick in BNS_Brain.
-local function warnLine(brain)
-    local def = BNS.Archetypes.get(brain.archetype)
-    if def and def.warn then return getText(def.warn) end
-    if brain.tier == BNS.Tier.MILITIA then return getText("UI_BNS_WarnMilitia") end
-    if brain.tier == BNS.Tier.THUG then return getText("UI_BNS_WarnThug") end
-    return getText("UI_BNS_WarnCivilian")
-end
+-- Every fresh engagement opens with a hold during which no damage is
+-- dealt, so a bandit telegraphs danger before the first shot or swing.
+-- The timer itself counts down every engine tick in BNS_Brain.
 
 -- How long a bandit holds off after the warning, in engine ticks
 -- (BNS_Brain counts warnTimer down every tick, 60/s).
@@ -272,19 +264,15 @@ BNS.Programs.WARN_TICKS = 240 -- 4 seconds
 
 -- The telegraph before a bandit commits. An armed bandit puts a round
 -- past you from the gun they are actually carrying -- no damage, but
--- real gunshot noise, which also brings zombies. Someone with only a
--- weapon in hand shouts instead, since they have no other way to say
--- "back off" before swinging.
+-- real gunshot noise, which also brings zombies. A bandit with only a
+-- melee weapon closes the distance silently: the hold is the same four
+-- seconds either way, so the tell is that they are coming for you, not
+-- that they said so.
 function BNS.Programs.startWarning(zombie, brain, player)
     if brain.warned or brain.warnTimer then return end
     brain.warnTimer = BNS.Programs.WARN_TICKS
-    local fired = false
     if player and brain.weapon and brain.weapon.gun then
-        fired = BNS.Combat.warningShot(zombie, brain, player)
-    end
-    if not fired then
-        brain.speechCooldown = 0
-        BNS.Say(zombie, brain, warnLine(brain))
+        BNS.Combat.warningShot(zombie, brain, player)
     end
 end
 

@@ -129,6 +129,6 @@ Two invariants worth keeping in mind when touching the debug code:
   bandit opens with `BNS.Combat.warningShot` — the real held weapon, its
   own sound via `getSwingSound()`, no damage roll — and `warnTimer` holds
   damage off for `BNS.Programs.WARN_TICKS` (240 engine ticks = 4s).
-  `warnTimer` counts *engine* ticks, not brain ticks. Melee bandits have
-  nothing to fire and fall back to the shouted line. Being attacked first
-  skips the telegraph entirely.
+  `warnTimer` counts *engine* ticks, not brain ticks. Melee bandits close
+  silently — same hold, no shot and no line. Being attacked first skips
+  the telegraph entirely.

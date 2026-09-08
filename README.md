@@ -60,10 +60,10 @@ sync (zombies already sync). Consequences you should know about:
   bandit opens it by putting a round past you — fired from the gun they
   are actually carrying, using that weapon's own sound, doing no damage,
   and loud enough to bring zombies down on both of you. Then they hold
-  their aim. Bandits carrying only a melee weapon have nothing to fire, so
-  they shout instead and close in without swinging. Four seconds is enough
-  to run, draw, or start talking. A bandit you attack first skips the hold
-  entirely — being shot at is its own warning.
+  their aim. Bandits carrying only a melee weapon say nothing at all —
+  they just close the distance, and the four seconds is the only warning
+  you get. Enough to run, draw, or start talking. A bandit you attack
+  first skips the hold entirely — being shot at is its own warning.
 
 ## Installation
 

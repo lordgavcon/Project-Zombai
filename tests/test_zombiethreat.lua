@@ -496,14 +496,25 @@ local before = #gz.sounds
 BNS.Programs.startWarning(gz, gunner, victim)
 assert(#gz.sounds == before, "no second warning shot while already committed")
 
--- Melee bandits have nothing to fire, so they still shout.
+-- Melee bandits close in silently: nothing fired, nothing said.
+local said = {}
+local realSay = BNS.Say
+BNS.Say = function(_, _, text) table.insert(said, text) end
 local thug = { id = "t1", role = BNS.Role.BANDIT, tier = BNS.Tier.THUG,
                health = 1.0, program = BNS.Program.ATTACK, speechCooldown = 0,
                weapon = { item = "Base.BaseballBat", dmg = 0.16, range = 1.4 } }
 local tz = makeZ(10, 10, { brain = thug })
 BNS.Programs.startWarning(tz, thug, victim)
-assert(#tz.sounds == 0, "an unarmed-of-guns bandit fires nothing")
-assert(thug.warnTimer == 240, "but still telegraphs for the same 4 seconds")
-print("melee telegraph OK")
+assert(#tz.sounds == 0, "a melee bandit fires nothing")
+assert(#said == 0, "and says nothing -- they close silently")
+assert(thug.warnTimer == 240, "but still holds off for the same 4 seconds")
+thug.attackTimer = 0
+thug.animMode = "idle"
+local hitsBefore = #victim.hits
+victim.x, victim.y = 10, 10
+BNS.Combat.attack(tz, thug, victim)
+assert(#victim.hits == hitsBefore, "and lands nothing during the hold")
+BNS.Say = realSay
+print("silent melee approach OK")
 
 print("ALL TESTS PASSED")
