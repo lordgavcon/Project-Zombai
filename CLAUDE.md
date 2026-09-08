@@ -30,12 +30,28 @@ See README.md for the feature list and the code-layout map. Key facts:
 - The `BNS` Lua namespace and `BNS_*` file names are internal and kept from
   the original project — do not mass-rename them.
 - **AnimSet XML has an exact form.** A STRING condition is
-  `<m_Type>STRING</m_Type>` with `<m_Value>`; pairing it with
-  `<m_StringValue>` matches nothing and the node silently never plays.
+  `<m_Type>STRING</m_Type>` paired with `<m_StringValue>`. The value tag
+  is named after the type (`BOOL` takes `<m_BoolValue>`), so a bare
+  `<m_Value>` parses into nothing: the node loads, never matches, and the
+  shell keeps playing the vanilla zombie clip. This file used to claim the
+  opposite, and every overlay was written that way — which is what "the
+  bandits use the zombie idle animation" was.
   Clip names (`Bob_*`) and `Weapon` values (`1handed`, `2handed`, `heavy`,
   `knife`, `spear`, `handgun`, `firearm`, `chainsaw`, `throwing`) must come
   from the game's own `media/AnimSets/player/`, never from memory —
   `tests/test_anim.lua` enforces the form and the mode coverage.
+- **An AnimNode only competes inside its own AnimState directory**, and
+  the shell's engine state has nothing to do with the mode the brain asks
+  for: BNS suppresses the shell's target, so it never enters its own
+  attack state, and a swing pulse lands while it is standing or walking a
+  path. A swing node that only lived under `attack/` could therefore never
+  play. Every node is emitted into every state a driven shell can be in
+  (`idle`, `zombieidle`, `pathfind`, `walktoward`, `walktowards`,
+  `attack`) from one table in **`tools/gen_animsets.lua`** — edit that and
+  re-run it, never the generated XML; the suite fails if the tree has
+  drifted. Which of those state names the build actually uses can be read
+  off a running game with the debug panel's Anim lab **PROBE**
+  (`getCurrentStateName` / `getAnimationStateName`).
 - **Engine commands are rationed.** A shell is moved by the engine's own
   pathfinder, so every extra order restarts its movement mid-step and the
   NPC visibly skates. Path orders go through `BNS.Programs.walkTo`, which
@@ -43,6 +59,18 @@ See README.md for the feature list and the code-layout map. Key facts:
   moved; `stopMoving` halts once and is a no-op while already stopped; and
   zombie suppression re-asserts a few times a second, not every frame.
   Never add a per-tick engine call to the brain without a throttle.
+  The budget applies only while the shell is *still walking the order it
+  has*: `BNS.Programs.hasEnginePath` asks it (`hasPath`/`isPathing`,
+  probed once and remembered), and a dropped path is re-issued at once.
+  Without that the budget is a gag — a shell whose path something else
+  cancelled stands still forever while the brain declines to re-order it.
+- **Suppression must not park the shell.** `BNS.Suppress` (in
+  `BNS_Core.lua`) gates the calls that stop a shell behaving like a
+  zombie. Only `clearTarget` is on: it is what stops them lunging at
+  players and it is understood. `setUseless` and `makeInactive` were added
+  on a guess and are off — a parked character cannot walk, which is what
+  "bandits don't walk around" looked like. Both are switchable from the
+  Anim lab so the question gets answered in game.
 - Persistent NPC state lives in global mod data (`BNS_Persistence.lua`);
   never store Java object references in mod data — keep live refs in
   module-local tables (see `BNS.ZombieThreat.targets`).

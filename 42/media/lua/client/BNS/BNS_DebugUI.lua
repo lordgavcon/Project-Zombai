@@ -233,6 +233,24 @@ function BNS.DebugUI:createChildren()
                 self:send("debugAnim", { id = self.selectedId, mode = mode })
             end))
     end
+    -- Read the shell instead of guessing: which AnimState it is really
+    -- in, and whether the engine still holds the path we ordered.
+    table.insert(self.animButtons, addButton("PROBE", 90, 0, 2, function()
+        if not self.selectedId then
+            BNS.DebugUI.onResult({ text = "select an NPC on the NPCs tab first" })
+            return
+        end
+        self:send("debugAnimProbe", { id = self.selectedId })
+    end))
+    table.insert(self.animButtons, addButton("useless", 90, 1, 2, function()
+        self:send("debugSuppress", { key = "useless" })
+    end))
+    table.insert(self.animButtons, addButton("inactive", 90, 2, 2, function()
+        self:send("debugSuppress", { key = "inactive" })
+    end))
+    table.insert(self.animButtons, addButton("clearTarget", 90, 3, 2, function()
+        self:send("debugSuppress", { key = "clearTarget" })
+    end))
 
     -- Scenario buttons
     self.scenarioButtons = {}
@@ -388,6 +406,15 @@ function BNS.DebugUI:rebuildList()
         self.list:addItem("Select an NPC on the NPCs tab, then force a mode below and watch", {})
         self.list:addItem("it. A mode that does nothing means that node is not matching:", {})
         self.list:addItem("check the clip name and the conditions in its XML.", {})
+        self.list:addItem("", {})
+        self.list:addItem("PROBE reads the shell: the AnimState it is really in (an AnimNode", {})
+        self.list:addItem("only competes inside its own state folder), the animation variables", {})
+        self.list:addItem("as the engine sees them, whether it still holds the path we gave it,", {})
+        self.list:addItem("and how far it moved since the last probe.", {})
+        self.list:addItem("", {})
+        self.list:addItem("useless / inactive / clearTarget toggle the shell-suppression calls.", {})
+        self.list:addItem("The first two are off by default: neither is verified, and a parked", {})
+        self.list:addItem("shell cannot walk. Turn one on and probe again to see what it costs.", {})
         self.list:addItem("", {})
         for _, line in ipairs(self.results) do
             self.list:addItem("  " .. line, { colour = { 0.7, 1.0, 0.7 } })

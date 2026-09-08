@@ -248,6 +248,82 @@ function BNS.Debug.forceAnim(player, args)
         brain.weapon and tostring(brain.weapon.item) or "unarmed"))
 end
 
+-- Read the live shell rather than guessing at it.
+--
+-- Two things about the shell can only be learned from a running game,
+-- and both have silently broken animation before:
+--
+--   * which AnimState the shell is actually in -- an AnimNode only
+--     competes inside its own state directory, so a node filed under a
+--     state the shell never enters can never play. The overlays are
+--     generated into every plausible state (tools/gen_animsets.lua); this
+--     prints the name the engine reports so the list can be trimmed to
+--     the truth.
+--   * whether the engine is holding the path we ordered. A shell that
+--     will not walk reads identically to one that is never asked to.
+--
+-- Everything here is a read, and every method is checked for presence
+-- before it is called (a pcall on a missing method still dumps a stack
+-- trace, so probing is not free).
+local function readShell(shell, name)
+    if not shell[name] then return nil end
+    local ok, value = pcall(function() return shell[name](shell) end)
+    if not ok then return "[err]" end
+    if value == nil then return "nil" end
+    return tostring(value)
+end
+
+function BNS.Debug.animProbe(player, args)
+    local shell = BNS.Debug.findNPC(args.id)
+    if not shell then note(player, "NPC not loaded: " .. tostring(args.id)) return end
+    local brain = BNS.brain(shell)
+
+    note(player, string.format("%s: state=%s anim=%s action=%s",
+        brain.name,
+        readShell(shell, "getCurrentStateName") or "[no getCurrentStateName]",
+        readShell(shell, "getAnimationStateName") or "[no getAnimationStateName]",
+        readShell(shell, "getActionStateName") or "-"))
+    note(player, string.format("  vars: BNSNPC=%s BNSAnim=%s Weapon=%s (brain mode %s)",
+        tostring(shell.getVariable and shell:getVariable("BNSNPC")),
+        tostring(shell.getVariable and shell:getVariable("BNSAnim")),
+        tostring(shell.getVariable and shell:getVariable("Weapon")),
+        tostring(brain.animMode)))
+    note(player, string.format("  path: hasPath=%s moving=%s target=%s,%s orders=%d lost=%d",
+        readShell(shell, "hasPath") or "-",
+        readShell(shell, "isMoving") or "-",
+        readShell(shell, "getPathTargetX") or "-",
+        readShell(shell, "getPathTargetY") or "-",
+        brain.pathCount or 0, brain.pathLost or 0))
+
+    -- Displacement since the last probe: the only observation that
+    -- actually proves the shell is walking.
+    local x, y = shell:getX(), shell:getY()
+    if brain.probeX then
+        note(player, string.format("  moved %.2f tiles since the last probe",
+            BNS.dist(x, y, brain.probeX, brain.probeY)))
+    else
+        note(player, "  probe again in a few seconds to measure movement")
+    end
+    brain.probeX, brain.probeY = x, y
+
+    note(player, string.format("  suppress: clearTarget=%s useless=%s inactive=%s",
+        tostring(BNS.Suppress.clearTarget), tostring(BNS.Suppress.useless),
+        tostring(BNS.Suppress.inactive)))
+end
+
+-- Flip one of the unverified "calm the shell" engine calls, so whether
+-- either is what stops NPCs walking can be answered in game.
+function BNS.Debug.setSuppress(player, args)
+    local key = args.key
+    if BNS.Suppress[key] == nil then
+        note(player, "unknown suppression flag: " .. tostring(key))
+        return
+    end
+    BNS.Suppress[key] = not BNS.Suppress[key]
+    note(player, "suppress." .. key .. " = " .. tostring(BNS.Suppress[key])
+        .. " (applies to shells spawned or ticked from now on)")
+end
+
 function BNS.Debug.teleport(player, args)
     local shell = BNS.Debug.findNPC(args.id)
     if not shell then note(player, "NPC not loaded") return end
@@ -413,6 +489,25 @@ end
 -- Each scenario stages the situation and says what to watch for; the
 -- overlay (program text above heads) shows whether it plays out.
 BNS.Debug.Scenarios = {
+    -- The two things a person looking at the game can settle that no
+    -- offline suite can: is a shell playing player clips, and is it
+    -- actually walking.
+    animwalk = {
+        label = "Human animation + walking",
+        watch = "bandit stands with the player idle (not the zombie sway), "
+            .. "ambles off on its own, and swings its weapon like a player; "
+            .. "if not, select it on the NPCs tab and hit PROBE in the Anim lab",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if shell then
+                local brain = BNS.brain(shell)
+                brain.program = BNS.Program.WANDER
+                brain.restUntil = nil
+                BNS.Debug.animProbe(player, { id = ids[1] })
+            end
+        end,
+    },
     warning = {
         label = "Warning shot + 4s hold",
         watch = "militia fires one round past you, holds aim 4s, then engages",
@@ -511,6 +606,8 @@ local HANDLERS = {
     debugSpawn    = BNS.Debug.spawnNPC,
     debugProgram  = BNS.Debug.forceProgram,
     debugAnim     = BNS.Debug.forceAnim,
+    debugAnimProbe = BNS.Debug.animProbe,
+    debugSuppress = BNS.Debug.setSuppress,
     debugTeleport = BNS.Debug.teleport,
     debugKill     = BNS.Debug.killNPC,
     debugClear    = function(p) BNS.Debug.clearNPCs(p) end,

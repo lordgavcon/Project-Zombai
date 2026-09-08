@@ -33,7 +33,11 @@ local function suppressZombie(zombie, brain)
     brain.suppressTick = (brain.suppressTick or ZombRand(SUPPRESS_EVERY)) - 1
     if brain.suppressTick > 0 then return end
     brain.suppressTick = SUPPRESS_EVERY
-    zombie:setUseless(true)
+    -- setUseless was re-asserted here several times a second on nothing
+    -- but a guess about what it does. It is off by default now: see
+    -- BNS.Suppress in BNS_Core.
+    if BNS.Suppress.useless and zombie.setUseless then zombie:setUseless(true) end
+    if not BNS.Suppress.clearTarget then return end
     if zombie.getTarget and zombie.setTarget then
         if zombie:getTarget() ~= nil then zombie:setTarget(nil) end
     elseif zombie.setTarget then

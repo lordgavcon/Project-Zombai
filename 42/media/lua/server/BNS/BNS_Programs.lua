@@ -40,6 +40,43 @@ end
 BNS.Programs.REPATH_TICKS = 3   -- full brain ticks (~0.5s) between path orders
 BNS.Programs.REPATH_DIST = 1.5  -- ...unless the destination moved this far
 
+-- Does the engine still hold a path for this shell?
+--
+-- The repath budget above assumes an order we issued is still being
+-- walked. When something else drops it -- the shell's own AI changing
+-- state, a blocked square, a failed path -- the budget turns into a gag:
+-- the NPC stands still and we politely decline to re-order it. That is
+-- what "bandits don't walk around" looks like from the outside. Asking
+-- the shell settles it.
+--
+-- hasPath()/isPathing() are both on IsoZombie in B42, but a signature
+-- that throws must not be retried on a tick (see CLAUDE.md), so the form
+-- that works is probed once and remembered, and a thrower is written off
+-- for the session. "Don't know" means "assume it is still walking", which
+-- leaves the old budget behaviour exactly as it was.
+BNS.Programs.pathProbe = nil -- nil = untried, "hasPath"/"isPathing"/false = settled
+
+function BNS.Programs.hasEnginePath(zombie)
+    if BNS.Programs.pathProbe == false then return true end
+    if BNS.Programs.pathProbe then
+        local ok, has = pcall(function() return zombie[BNS.Programs.pathProbe](zombie) end)
+        if ok then return has == true end
+        BNS.Programs.pathProbe = false
+        return true
+    end
+    for _, name in ipairs({ "hasPath", "isPathing" }) do
+        if zombie[name] then
+            local ok, has = pcall(function() return zombie[name](zombie) end)
+            if ok and type(has) == "boolean" then
+                BNS.Programs.pathProbe = name
+                return has
+            end
+        end
+    end
+    BNS.Programs.pathProbe = false
+    return true
+end
+
 function BNS.Programs.walkTo(zombie, x, y, z, run)
     local brain = BNS.brain(zombie)
     if brain then
@@ -47,8 +84,12 @@ function BNS.Programs.walkTo(zombie, x, y, z, run)
         local movedFar = brain.pathX == nil
             or BNS.dist(x, y, brain.pathX, brain.pathY) >= BNS.Programs.REPATH_DIST
         local gearChanged = brain.pathRun ~= (run == true)
+        -- Ordered somewhere and no longer walking there: re-issue now
+        -- rather than waiting out a budget meant for a shell in motion.
+        local lostPath = brain.pathX ~= nil and not BNS.Programs.hasEnginePath(zombie)
+        if lostPath then brain.pathLost = (brain.pathLost or 0) + 1 end
         -- Still walking the order it already has: leave it alone.
-        if brain.pathCooldown > 0 and not movedFar and not gearChanged then
+        if brain.pathCooldown > 0 and not movedFar and not gearChanged and not lostPath then
             return
         end
         brain.pathCooldown = BNS.Programs.REPATH_TICKS

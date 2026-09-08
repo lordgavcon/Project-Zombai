@@ -79,8 +79,10 @@ function BNS.Spawner.materialise(rec)
     local zombie = zombies:get(0)
 
     -- Calm the engine's zombie instincts; the brain drives from here.
-    zombie:setUseless(true)
-    zombie:makeInactive(true)
+    -- Only what BNS.Suppress allows: the two parking calls are off by
+    -- default because a parked shell cannot walk (see BNS_Core).
+    if BNS.Suppress.useless and zombie.setUseless then zombie:setUseless(true) end
+    if BNS.Suppress.inactive and zombie.makeInactive then zombie:makeInactive(true) end
     if zombie.setNoTeeth then zombie:setNoTeeth(true) end
     zombie:setHealth(1.5)
 

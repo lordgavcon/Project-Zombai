@@ -144,7 +144,7 @@ Debug panel*). Five tabs:
 | NPCs | Every NPC with program, health, archetype, distance and flags; select one to Go to / Bring here / Kill / cycle its program / give it a vehicle / swarm it with zombies. Also toggles the overlay |
 | Spawn | One click per archetype (farmer, city folk, thug, police, firefighter, ex-military) plus survivor and trader, 1–5 at a time as a squad; raid me, fortify a POI, drop a loot box, spawn a horde, clear all NPCs |
 | Scenarios | Ten one-click behaviour tests — warning shot, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |
-| Anim lab | Player-body status, per-action buttons to fire and cycle the candidate engine calls for swing/shoot/hit/grabbed, and **PROBE** — a pass/fail line for every step of the pipeline (are snapshots arriving, does `SurvivorFactory` exist, does `IsoPlayer.new` construct, can a puppet be found and actually hidden), which is the fastest way to turn "bandits still look like zombies" into a specific missing call |
+| Anim lab | Force any `BNSAnim` mode on the selected NPC so each overlay node can be confirmed one at a time, plus **PROBE** — the shell read back as the engine sees it: the AnimState it is actually in (`getCurrentStateName` / `getAnimationStateName`, which is what decides *which* directory's nodes can play), the `BNSNPC` / `BNSAnim` / `Weapon` variables, whether it still holds the path we ordered, and how far it moved since the last probe. Toggles for the `useless` / `inactive` / `clearTarget` suppression calls sit alongside it, so "do these park the shell?" can be answered in game |
 | Log | The mod's own `[BNS]` event log, newest first, without tailing `console.txt` |
 
 The **overlay** (NPCs tab) is the main validation tool: it draws each NPC's current
@@ -159,9 +159,16 @@ Non-admin requests are dropped and logged.
 ## Known limitations / TODO
 
 - Not yet play-tested against 42.20 — B42's Lua API is still moving, and a
-  few calls (e.g. `setUseless`, `IsoBarricade.AddBarricadeToObject`,
-  outfit names) may need renaming against the current javadocs. Everything
-  is guarded where practical; check `console.txt` for `[BNS]` lines.
+  few calls (e.g. `IsoBarricade.AddBarricadeToObject`, outfit names) may
+  need renaming against the current javadocs. Everything is guarded where
+  practical; check `console.txt` for `[BNS]` lines.
+- **Shell suppression is deliberately minimal.** `BNS.Suppress` in
+  `BNS_Core.lua` gates the calls that stop a shell behaving like a zombie.
+  Only clearing its target is on by default — `setUseless` and
+  `makeInactive` were unverified guesses at "calm the engine's instincts",
+  and a parked character cannot walk, which is what NPCs standing still
+  looked like. Both can be switched back on from the Anim lab and the
+  effect measured with PROBE.
 - **Arming a shell trips a vanilla bug.** `setPrimaryHandItem` fires the
   engine's `OnEquipPrimary` event, and B42's own `FishingHandler.lua`
   assumes the character is a player, so it throws
@@ -182,17 +189,26 @@ Non-admin requests are dropped and logged.
   classes) on them; the AnimSet overlays in `42/media/AnimSets/zombie/`
   select player clips on those conditions, so a swing matches the weapon in
   hand. Every clip name in those overlays is taken from the game's own
-  `media/AnimSets/player/`, not guessed.
+  `media/AnimSets/player/`, not guessed. The overlays are **generated** by
+  `tools/gen_animsets.lua` — one table of fifteen nodes emitted into every
+  AnimState a shell can be in; edit the generator and re-run it, never the
+  XML. (Until this was fixed the overlays wrote STRING conditions as
+  `<m_Value>` instead of `<m_StringValue>`, so no node ever matched and
+  NPCs used the vanilla zombie clips throughout.)
   A client-side `IsoPlayer` proxy layer was tried and **removed**: on
   42.20.4 every step verified — descriptor, constructor, square
   registration, puppet hiding — and the engine still never drew the
   character, which left NPCs invisible. B42 does not appear to render
   non-controlled `IsoPlayer` instances.
-- Which *state directories* the zombie AnimSet exposes (`idle`,
-  `walktowards`, `attack`) is still assumed rather than read from the
-  game's `media/AnimSets/zombie/`. If a mode never plays, that is the first
-  thing to check — the debug panel's Anim lab forces one mode at a time on
-  a selected NPC so each node can be confirmed individually.
+- Which *state directories* the zombie AnimSet exposes is still read off
+  the class names rather than the game's own `media/AnimSets/zombie/`, so
+  every node is generated into all six a driven shell could be in (`idle`,
+  `zombieidle`, `pathfind`, `walktoward`, `walktowards`, `attack`) rather
+  than a single guess: an AnimNode only competes inside its own state
+  directory, and a directory the build does not use is simply never read.
+  The Anim lab's **PROBE** prints the shell's live `getCurrentStateName` /
+  `getAnimationStateName`, so the list can be trimmed to the truth in
+  `tools/gen_animsets.lua` once a running game has answered.
 - Animation variables are set server-side. If MP clients show zombie
   animations while single player shows human ones, they are not
   replicating and the fix is a client-side mirror pass — the variables are

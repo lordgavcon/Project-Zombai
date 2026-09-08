@@ -12,6 +12,23 @@ BNS = BNS or {}
 BNS.Version = "0.1.0"
 BNS.CommandModule = "BNS"
 
+-- Shell suppression -----------------------------------------------------
+--
+-- A shell has to stop behaving like a zombie without being frozen. Only
+-- the target clearing is understood: it is what stops a shell lunging at
+-- players, and it is cheap. `setUseless` and `makeInactive` were added on
+-- a guess ("calm the engine's instincts") and never verified against a
+-- running build -- and a shell that will not walk while its brain issues
+-- path orders is exactly what those two would look like if either parks
+-- the character. They are off by default and can be switched back on from
+-- the debug panel, so the question can be answered in game rather than
+-- argued about here.
+BNS.Suppress = {
+    clearTarget = true,  -- setTarget(nil)/setAttackedBy(nil): stops zombie aggression
+    useless     = false, -- setUseless(true)
+    inactive    = false, -- makeInactive(true)
+}
+
 -- Roles ----------------------------------------------------------------
 BNS.Role = {
     BANDIT   = "bandit",

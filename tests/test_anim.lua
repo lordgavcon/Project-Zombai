@@ -110,9 +110,18 @@ assert(z2.vars.Weapon == "heavy", "swapping weapons re-selects the clip set")
 print("weapon class mapping OK")
 
 -- 4. The overlay XML files are in the form the game parses ------------------------------
--- The overlays previously paired <m_Type>STRING</m_Type> with
--- <m_StringValue>, a combination that appears nowhere in the game's own
--- AnimSets -- so the conditions never matched and no node was ever used.
+-- A STRING condition is <m_Type>STRING</m_Type> paired with
+-- <m_StringValue>. That is the form the game's own AnimSets use, and the
+-- form every published animation-framework template uses. <m_Value>
+-- parses into nothing: the node loads, never matches, and the shell keeps
+-- playing the vanilla zombie clip -- which is exactly what "bandits use
+-- the zombie idle animation" was.
+--
+-- The tree is generated (tools/gen_animsets.lua), so the suite also
+-- checks the checked-in files still match what the generator emits.
+local ROOT_DIR = ROOT:gsub("/42/media/lua$", "")
+local gen = dofile(ROOT_DIR .. "/tools/gen_animsets.lua")
+
 local animRoot = ROOT:gsub("/lua$", "") .. "/AnimSets/zombie"
 local function listXml(dir)
     local out = {}
@@ -120,47 +129,72 @@ local function listXml(dir)
     if not p then return out end
     for line in p:lines() do table.insert(out, line) end
     p:close()
+    table.sort(out)
     return out
 end
 local files = listXml(animRoot)
 assert(#files >= 10, "the overlay set exists, found " .. #files)
+
 local sawSwing, sawAim = false, false
+local perState = {}
 for _, path in ipairs(files) do
     local f = assert(io.open(path, "r"))
     local xml = f:read("*a")
     f:close()
     local name = path:match("[^/]+$")
-    assert(not xml:find("m_StringValue"),
-        name .. " uses <m_StringValue>; the game's own files use <m_Value> for STRING conditions")
+    local state = path:match("([^/]+)/[^/]+$")
+    assert(not xml:find("<m_Value>"),
+        name .. " uses <m_Value>; STRING conditions are read from <m_StringValue>")
     assert(xml:find("<m_Name>BNSNPC</m_Name>"),
         name .. " must be gated on BNSNPC or it would apply to real zombies")
     assert(xml:find("<m_AnimName>Bob_"),
         name .. " should play a player clip, not a zombie one")
-    local anim = xml:match("<m_Name>BNSAnim</m_Name>%s*<m_Type>STRING</m_Type>%s*<m_Value>([^<]+)</m_Value>")
-    assert(anim, name .. " must select on a BNSAnim mode")
+    local anim = xml:match("<m_Name>BNSAnim</m_Name>%s*<m_Type>STRING</m_Type>%s*<m_StringValue>([^<]+)</m_StringValue>")
+    assert(anim, name .. " must select on a BNSAnim mode, in the STRING/m_StringValue form")
     assert(BNS.Anim.Modes[anim], name .. " selects on unknown mode '" .. anim .. "'")
-    local weapon = xml:match("<m_Name>Weapon</m_Name>%s*<m_Type>STRING</m_Type>%s*<m_Value>([^<]+)</m_Value>")
+    local weapon = xml:match("<m_Name>Weapon</m_Name>%s*<m_Type>STRING</m_Type>%s*<m_StringValue>([^<]+)</m_StringValue>")
     if weapon then
         assert(BNS.Anim.WeaponClasses[weapon],
             name .. " selects on weapon class '" .. weapon .. "', which vanilla does not use")
     end
+    perState[state] = perState[state] or {}
+    perState[state][anim] = true
     if anim == "swing" then sawSwing = true end
     if anim == "aim" then sawAim = true end
 end
 assert(sawSwing and sawAim, "swings and aiming are both covered")
 
--- Every mode the brain can set must have at least one node, or that mode
--- silently does nothing in game.
-local covered = {}
-for _, path in ipairs(files) do
-    local f = assert(io.open(path, "r")); local xml = f:read("*a"); f:close()
-    local anim = xml:match("<m_Name>BNSAnim</m_Name>%s*<m_Type>STRING</m_Type>%s*<m_Value>([^<]+)</m_Value>")
-    if anim then covered[anim] = true end
+-- An AnimNode only competes inside the AnimState directory it lives in,
+-- and the shell's engine state has nothing to do with the mode we ask
+-- for: BNS suppresses the shell's target, so it never enters its own
+-- attack state, and a swing pulse lands while it is standing or walking.
+-- Every mode therefore has to exist in every state directory shipped, or
+-- that mode silently does nothing for a shell in that state.
+for _, state in ipairs(gen.STATES) do
+    assert(perState[state], "no overlay nodes shipped for AnimState '" .. state .. "'")
+    for mode in pairs(BNS.Anim.Modes) do
+        assert(perState[state][mode],
+            "state '" .. state .. "' has no node for mode '" .. mode .. "'")
+    end
 end
-for mode in pairs(BNS.Anim.Modes) do
-    assert(covered[mode], "no AnimSet node plays mode '" .. mode .. "'")
+
+-- ...and the checked-in tree is exactly what the generator produces, so
+-- a node edited by hand in one directory cannot drift from its copies.
+local expected = gen.files()
+local expectedCount = 0
+for path, body in pairs(expected) do
+    expectedCount = expectedCount + 1
+    local f = io.open(ROOT_DIR .. "/42/" .. path, "r")
+    assert(f, "missing generated overlay " .. path .. " -- run tools/gen_animsets.lua")
+    local got = f:read("*a")
+    f:close()
+    assert(got == body, path .. " differs from tools/gen_animsets.lua -- regenerate it")
 end
-print("AnimSet overlays OK (" .. #files .. " nodes, every mode covered)")
+assert(#files == expectedCount,
+    "the overlay tree has " .. #files .. " files but the generator emits "
+        .. expectedCount .. " -- regenerate it")
+print("AnimSet overlays OK (" .. #files .. " nodes across " .. #gen.STATES
+    .. " states, every mode covered in each)")
 
 -- 5. Living-look pass applies what the build supports, skips the rest ------------------
 local looked = { skin = false, blood = false, model = false }
