@@ -71,20 +71,116 @@ end
 
 -- Lazy fortification ----------------------------------------------------
 
--- Which claimed POI owns this square, and how close in: "core" is the
--- fortified stronghold itself, "approach" the wider ring that only ever
--- gets scattered evidence (never barricades or supplies).
-local function baseForSquare(x, y)
+-- Anchoring a claim to a real building ---------------------------------
+--
+-- The POI list is a set of hand-placed coordinates, so a circle drawn
+-- around one covers part of a building and a slice of the street: half
+-- the stronghold goes unfortified and supplies end up outdoors. So a
+-- claim adopts the actual building instead. "Core" then means the
+-- building's own footprint -- every square of it, and nothing outside
+-- it -- and the approach ring is measured from the building's centre.
+
+local function buildingOf(square)
+    if not square then return nil end
+    local ok, building = pcall(function()
+        if square.getBuilding then
+            local b = square:getBuilding()
+            if b then return b end
+        end
+        local room = square.getRoom and square:getRoom() or nil
+        return room and room:getBuilding() or nil
+    end)
+    if not ok then return nil end
+    return building
+end
+
+-- Footprint of a building, or nil if this build doesn't expose one.
+local function buildingBounds(building)
+    if not building then return nil end
+    local bounds = nil
+    pcall(function()
+        local def = building:getDef()
+        if not def then return end
+        local b = { x = def:getX(), y = def:getY(), w = def:getW(), h = def:getH() }
+        if def.getID then b.id = def:getID() end
+        if b.x and b.y and b.w and b.h and b.w > 0 and b.h > 0 then bounds = b end
+    end)
+    return bounds
+end
+
+local function baseReach(base)
+    if base.b then return math.max(base.b.w, base.b.h) / 2 + 2 end
+    return base.radius
+end
+
+-- Take the building at the claim point if its square is loaded, else the
+-- one belonging to the square that just streamed in near it.
+local function adoptBuilding(base, square)
+    if base.b then return true end
+    local bounds = nil
+    if getSquare then
+        bounds = buildingBounds(buildingOf(getSquare(base.x, base.y, base.z or 0)))
+    end
+    bounds = bounds or buildingBounds(buildingOf(square))
+    if not bounds then return false end
+
+    base.b = bounds
+    -- Re-centre on the building so the garrison, camp noise and the
+    -- approach ring all line up with the walls a player actually sees.
+    base.x = bounds.x + math.floor(bounds.w / 2)
+    base.y = bounds.y + math.floor(bounds.h / 2)
+    -- Squares handled under the old circle may have been misclassified;
+    -- let them be reconsidered when they next stream in.
+    base.stockedSquares = {}
+    -- The garrison was placed around the claim point; move its anchor onto
+    -- the building so defenders hold the stronghold rather than a patch of
+    -- street beside it.
     local state = BNS.Persistence.getState()
-    local outer, outerZone = nil, nil
-    for _, base in pairs(state.bases) do
-        local d = BNS.dist(x, y, base.x, base.y)
-        if d <= base.radius then return base, "core" end
-        if not outer and d <= base.radius * BNS.Signs.APPROACH_MULT then
-            outer, outerZone = base, "approach"
+    for _, rec in pairs(state.npcs or {}) do
+        if rec.squad == "garrison_" .. base.name and rec.home then
+            rec.home.x, rec.home.y = base.x, base.y
+            rec.home.radius = math.max(bounds.w, bounds.h) / 2 + 2
         end
     end
-    return outer, outerZone
+    BNS.log(string.format("%s anchored to its building at %d,%d (%dx%d)",
+        base.name, bounds.x, bounds.y, bounds.w, bounds.h))
+    return true
+end
+
+-- Inside the *building*, not merely inside its bounding box: an L-shaped
+-- footprint has outdoor corners, and that is exactly where supplies were
+-- ending up. A square with no room is outdoors, whatever the box says.
+local function insideBase(base, square)
+    local b = base.b
+    if not b or not square then return false end
+    local x, y = square:getX(), square:getY()
+    if x < b.x or y < b.y or x >= b.x + b.w or y >= b.y + b.h then return false end
+    local here = buildingBounds(buildingOf(square))
+    if not here then return false end
+    if b.id and here.id then return here.id == b.id end
+    return here.x == b.x and here.y == b.y
+end
+BNS.Bases.insideBase = insideBase
+
+-- Which claimed POI owns this square, and how close in: "core" is the
+-- stronghold building itself, "approach" the ring outside it that only
+-- ever gets scattered evidence (never barricades or supplies).
+local function baseForSquare(square)
+    local x, y = square:getX(), square:getY()
+    local state = BNS.Persistence.getState()
+    local outer = nil
+    for _, base in pairs(state.bases) do
+        local d = BNS.dist(x, y, base.x, base.y)
+        -- Adopt from any square near the claim point; after that,
+        -- membership is the building's own footprint, not a distance --
+        -- a long or L-shaped building has corners no circle covers.
+        if not base.b and d <= base.radius then adoptBuilding(base, square) end
+        if insideBase(base, square) then return base, "core" end
+        if not outer and d <= baseReach(base) * BNS.Signs.APPROACH_MULT then
+            outer = base
+        end
+    end
+    return outer, outer and "approach" or nil
 end
 
 local function barricadeObject(square, obj, player0)
@@ -160,8 +256,10 @@ local function containersOn(square)
     return out
 end
 
--- Nearest containers within a few tiles of the square being stocked.
-local function containersNear(square)
+-- Nearest containers within a few tiles of the square being stocked, and
+-- never outside the stronghold: a shelf across the street is not the
+-- garrison's, and supplies left there read as loot lying outdoors.
+local function containersNear(square, base)
     local found = containersOn(square)
     if #found > 0 then return found end
     if not getSquare then return found end
@@ -172,7 +270,7 @@ local function containersNear(square)
                 -- Only the ring at this radius, so nearer squares win.
                 if math.max(math.abs(dx), math.abs(dy)) == r then
                     local sq = getSquare(x + dx, y + dy, z)
-                    if sq then
+                    if sq and insideBase(base, sq) then
                         local here = containersOn(sq)
                         if #here > 0 then return here end
                     end
@@ -236,8 +334,11 @@ end
 local function stockContainers(square, base)
     base.supplyLines = base.supplyLines or 0
     if base.supplyLines >= MAX_SUPPLY_LINES then return end
+    -- Belt and braces: nothing is ever stocked on a square that is not
+    -- inside the stronghold, however this got called.
+    if not insideBase(base, square) then return end
 
-    local found = containersNear(square)
+    local found = containersNear(square, base)
     if #found == 0 then
         -- Nothing to store things in nearby: haul a crate in.
         local crate = placeCrate(square, base)
@@ -252,7 +353,7 @@ end
 
 function BNS.Bases.onLoadGridsquare(square)
     if not square then return end
-    local base, zone = baseForSquare(square:getX(), square:getY())
+    local base, zone = baseForSquare(square)
     if not base then return end
     local key = square:getX() .. "_" .. square:getY() .. "_" .. square:getZ()
     base.stockedSquares = base.stockedSquares or {}

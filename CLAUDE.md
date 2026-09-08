@@ -117,3 +117,11 @@ Two invariants worth keeping in mind when touching the debug code:
   (`tests/test_signs.lua` asserts no pool offers anything worth picking
   up). Stocking is capped per POI so a stronghold doesn't become a
   warehouse.
+- **A claimed POI is a building, not a circle.** `BNS_Bases` adopts the
+  real building at the claim point (`getBuilding()` / `getRoom()`, its
+  `BuildingDef` footprint) and re-centres the base and its garrison on it.
+  "Core" is then `insideBase()` — inside the footprint *and* reporting
+  that same building, because a bounding box includes outdoor corners.
+  Fortifying and stocking are gated on it; the approach ring is measured
+  from the building's centre. Never reintroduce a radius test for what
+  counts as inside a stronghold.
