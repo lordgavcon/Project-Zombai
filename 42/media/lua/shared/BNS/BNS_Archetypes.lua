@@ -34,7 +34,6 @@ BNS.Archetypes.Defs = {
             { item = "Base.Shotgun",             dmg = 0.50, range = 7, sound = "ShotgunShot", hit = 50 },
         },
         gunChance = 30,
-        warn = "UI_BNS_WarnFarmer",
     },
     cityfolk = {
         tier = BNS.Tier.CIVILIAN,
@@ -64,7 +63,6 @@ BNS.Archetypes.Defs = {
             { item = "Base.Shotgun", dmg = 0.55, range = 7,  sound = "ShotgunShot", hit = 60 },
         },
         gunChance = 70,
-        warn = "UI_BNS_WarnPolice",
     },
     firefighter = {
         tier = BNS.Tier.THUG,
@@ -86,7 +84,6 @@ BNS.Archetypes.Defs = {
         },
         guns = BNS.Loadouts.Guns[BNS.Tier.MILITIA],
         gunChance = "sandbox",
-        warn = "UI_BNS_WarnMilitia",
     },
 }
 
