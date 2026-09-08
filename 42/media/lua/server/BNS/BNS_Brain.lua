@@ -69,6 +69,19 @@ local function updateNPC(zombie, brain)
     -- decremented here and nowhere else, so a reload finishes even while
     -- its owner is walking away and no timer can be counted down twice.
     BNS.Combat.tick(zombie, brain)
+    -- Flat on their back: nothing to do but get up. No swinging, no
+    -- shooting, no walking anywhere, and no working a door. The engine
+    -- owns the fall and the get-up, including the animation -- the
+    -- overlays deliberately do not cover the on-ground states.
+    if BNS.Combat.isDown(brain) then
+        if not brain.wentDown then
+            brain.wentDown = true
+            BNS.Programs.stopMoving(zombie, brain, "idle")
+            BNS.Doors.abort(brain)
+        end
+        return
+    end
+    brain.wentDown = nil
     -- Held by a zombie: struggle in place, no moving or attacking until
     -- the grip breaks (the ~1/s threat scan below keeps applying the
     -- crowd's scratches while held).
@@ -201,11 +214,17 @@ end
 function BNS.Brain.onWeaponHitCharacter(attacker, target, weapon, damage)
     if not BNS.isNPC(target) then return end
     local brain = BNS.brain(target)
-    -- Engine damage numbers vary wildly by weapon; normalise to our scale.
-    local amount = math.min((damage or 0.5) / 2.5, 0.9)
-    BNS.Combat.damageNPC(target, brain, amount)
-    -- Bandits retaliate; neutrals turn hostile if attacked. Being hit
-    -- is its own warning: they still shout, but skip the hold.
+    -- A shove is not an attack. It puts them on the floor, and what
+    -- happens to them there -- a swing, a stomp -- is what does the
+    -- damage. Pushing was landing full weapon damage, which made shoving
+    -- a bandit to death a real tactic and nothing like how a fight with a
+    -- person goes. A push at someone already down is a stomp, and stomps
+    -- hurt: that is the one case this passes straight through.
+    BNS.Combat.receiveHit(target, brain, attacker, weapon, damage)
+    -- Bandits retaliate; neutrals turn hostile if attacked -- and being
+    -- shoved is an assault too, so it commits them the same way a hit
+    -- does even though it costs them no health. Being hit is its own
+    -- warning: they still shout, but skip the hold.
     if brain.health > 0 then
         if brain.role ~= BNS.Role.BANDIT then brain.role = BNS.Role.BANDIT end
         brain.program = (brain.tier == BNS.Tier.CIVILIAN and brain.health < 0.4)

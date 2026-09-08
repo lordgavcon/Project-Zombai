@@ -100,6 +100,122 @@ function BNS.Combat.interval(ticks)
     return math.max(math.floor(ticks / BNS.Combat.speed()), 1)
 end
 
+-- On the ground ---------------------------------------------------------
+--
+-- A bandit put on their back is out of the fight until they are up:
+-- nobody swings an axe or lines up a shot lying down, and the shell's own
+-- get-up is driven by the engine. BNS tracks it with a timer rather than
+-- trusting an engine flag outright, because an unverified flag that is
+-- always true would park every NPC on the floor for ever -- the same
+-- mistake `setUseless` was.
+BNS.Combat.GETUP_TICKS = 150 -- ~2.5s down before they are back on their feet
+BNS.Combat.DOWN_POLL = 10    -- engine ticks between asking whether they are down
+BNS.Combat.DOWN_MAX = 600    -- ~10s: past this the engine's answer is not believed
+
+-- Methods that mean "on the floor". Deliberately narrow: `isOnFloor` is
+-- IsoMovingObject's "standing on a floor tile", which is true of everyone
+-- standing up, and reading it here would down every NPC permanently.
+BNS.Combat.DownFlags = { "isKnockedDown", "isFullyRagdolling" }
+
+-- ...and the state machine's own account of it, which needs no flag at
+-- all: a shell in its on-ground, get-up or fall-down state is not
+-- attacking anybody.
+BNS.Combat.DownStates = { "onground", "getup", "falldown", "knock" }
+
+-- Shove and stomp. A shove is not an attack -- it puts someone on the
+-- floor, and what happens to them there is what hurts. A stomp is the
+-- opposite: it only exists against someone already down, and it hurts.
+BNS.Combat.ShoveFlags = { "isPerformingShoveAnimation", "isShoving" }
+BNS.Combat.StompFlags = { "isPerformingStompAnimation", "isDoStomp" }
+
+-- Read a boolean off a character. A pcall on a missing method still dumps
+-- a stack trace, so presence is checked first, and a method that throws is
+-- written off for the session rather than retried on a tick (CLAUDE.md).
+-- Returns nil for "this build does not say", which callers must treat as
+-- an answer they did not get -- never as a no.
+BNS.Combat.flagProbe = {}
+
+function BNS.Combat.flag(obj, name)
+    if not obj or BNS.Combat.flagProbe[name] == false then return nil end
+    if not obj[name] then
+        BNS.Combat.flagProbe[name] = false
+        return nil
+    end
+    local ok, value = pcall(function() return obj[name](obj) end)
+    if not ok then
+        BNS.Combat.flagProbe[name] = false
+        BNS.log("'" .. name .. "()' unusable on this build")
+        return nil
+    end
+    BNS.Combat.flagProbe[name] = true
+    return value == true
+end
+
+local function anyFlag(obj, names)
+    for _, name in ipairs(names) do
+        if BNS.Combat.flag(obj, name) then return true end
+    end
+    return false
+end
+
+function BNS.Combat.stateName(zombie)
+    if not zombie.getCurrentStateName then return nil end
+    if BNS.Combat.flagProbe.getCurrentStateName == false then return nil end
+    local ok, name = pcall(function() return zombie:getCurrentStateName() end)
+    if not ok or name == nil then
+        BNS.Combat.flagProbe.getCurrentStateName = false
+        return nil
+    end
+    return string.lower(tostring(name))
+end
+
+-- Does the engine currently have this shell on the floor?
+function BNS.Combat.readDowned(zombie)
+    if anyFlag(zombie, BNS.Combat.DownFlags) then return true end
+    local state = BNS.Combat.stateName(zombie)
+    if state then
+        for _, needle in ipairs(BNS.Combat.DownStates) do
+            if state:find(needle, 1, true) then return true end
+        end
+    end
+    return false
+end
+
+function BNS.Combat.isDown(brain)
+    return brain ~= nil and brain.downTimer ~= nil
+end
+
+-- Put them on the floor. The engine drives the fall and the get-up (and
+-- the on-ground animation, which the overlays deliberately do not cover),
+-- so this is only BNS letting go of everything it was mid-way through.
+function BNS.Combat.goDown(zombie, brain)
+    if not brain.downTimer then
+        brain.downSince = 0
+        brain.swingPhase, brain.swingTimer, brain.whiffed = nil, nil, nil
+        brain.reloadTimer = nil -- you do not finish a magazine change on your back
+        brain.burstLeft = nil
+        brain.stamina = math.max((brain.stamina or 1.0) - 0.15, 0)
+        BNS.Anim.set(zombie, brain, "idle")
+    end
+    brain.downTimer = BNS.Combat.GETUP_TICKS
+    brain.aimTicks = 0
+end
+
+function BNS.Combat.isStomp(attacker)
+    return anyFlag(attacker, BNS.Combat.StompFlags)
+end
+
+-- Was this hit a push rather than a swing?
+function BNS.Combat.isShove(attacker, weapon, damage)
+    if BNS.Combat.isStomp(attacker) then return false end
+    if anyFlag(attacker, BNS.Combat.ShoveFlags) then return true end
+    -- Fallback for a build that answers neither: a shove carries no
+    -- weapon damage, a swing always does. An *unknown* damage is
+    -- deliberately not treated as a shove -- guessing wrong in that
+    -- direction would make bandits immune to being hit at all.
+    return type(damage) == "number" and damage <= 0
+end
+
 local BODY_PARTS = {
     BodyPartType.Torso_Upper, BodyPartType.Torso_Lower,
     BodyPartType.UpperArm_L, BodyPartType.UpperArm_R,
@@ -122,9 +238,12 @@ local function applyDamage(player, amount)
 end
 
 -- Attacks only land while standing still or walking: nobody swings an
--- axe or lines up a shot at a dead sprint. Programs must stop first.
+-- axe or lines up a shot at a dead sprint. Programs must stop first --
+-- and nobody does either from flat on their back.
 function BNS.Combat.canAttack(brain)
-    return brain ~= nil and brain.animMode ~= "run"
+    if brain == nil then return false end
+    if BNS.Combat.isDown(brain) then return false end
+    return brain.animMode ~= "run"
 end
 
 -- Line of sight ---------------------------------------------------------
@@ -228,6 +347,28 @@ end
 function BNS.Combat.tick(zombie, brain)
     brain.stamina = brain.stamina or 1.0
 
+    -- On the floor. Asked of the engine a few times a second rather than
+    -- every tick, and never believed past DOWN_MAX: a flag that turned
+    -- out to be always-true would otherwise leave NPCs lying down for
+    -- good, with nothing in game to say why.
+    if brain.downTimer then
+        brain.downTimer = brain.downTimer - 1
+        brain.downSince = (brain.downSince or 0) + 1
+        if brain.downTimer <= 0 then
+            brain.downTimer, brain.downSince, brain.downPoll = nil, nil, nil
+        end
+    end
+    brain.downPoll = (brain.downPoll or ZombRand(BNS.Combat.DOWN_POLL)) - 1
+    if brain.downPoll <= 0 then
+        brain.downPoll = BNS.Combat.DOWN_POLL
+        if (brain.downSince or 0) < BNS.Combat.DOWN_MAX
+                and BNS.Combat.readDowned(zombie) then
+            local since = brain.downSince
+            BNS.Combat.goDown(zombie, brain)
+            brain.downSince = since or 0
+        end
+    end
+
     if brain.swingTimer then
         brain.swingTimer = brain.swingTimer - 1
         if brain.swingTimer <= 0 and brain.swingPhase == "recover" then
@@ -262,6 +403,7 @@ end
 BNS.Combat.RECOVERED = 0.60 -- breath they must get back before re-engaging
 
 function BNS.Combat.isBusy(brain)
+    if BNS.Combat.isDown(brain) then return true end
     local stamina = brain.stamina or 1.0
     if stamina < BNS.Combat.WINDED then brain.blown = true end
     if brain.blown and stamina >= BNS.Combat.RECOVERED then brain.blown = nil end
@@ -460,6 +602,20 @@ function BNS.Combat.attackZombie(npc, brain, target)
         meleeCycle(npc, brain, target:getX(), target:getY(), w.range or 1.3,
             hurt(2), 85)
     end
+end
+
+-- What a hit on an NPC actually does. The rule lives here rather than in
+-- the event handler so it can be reasoned about (and tested) as a combat
+-- rule: a shove puts them down, a swing or a stomp hurts them.
+-- Returns "shoved" or "hurt".
+function BNS.Combat.receiveHit(zombie, brain, attacker, weapon, damage)
+    if BNS.Combat.isShove(attacker, weapon, damage) and not BNS.Combat.isDown(brain) then
+        BNS.Combat.goDown(zombie, brain)
+        return "shoved"
+    end
+    -- Engine damage numbers vary wildly by weapon; normalise to our scale.
+    BNS.Combat.damageNPC(zombie, brain, math.min((damage or 0.5) / 2.5, 0.9))
+    return "hurt"
 end
 
 -- Players (and zombies) hurting NPCs: shells keep engine health, but we

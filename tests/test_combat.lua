@@ -461,7 +461,114 @@ assert(scriptedNpc.offHand == scriptedNpc.hand,
 BNS.Anim.twoHandProbe = nil
 print("two-handed grip OK")
 
--- 12. Taking a hit spoils a swing in progress -------------------------------------------
+-- 12. A bandit on the floor is out of the fight -----------------------------------------
+-- Being knocked over used to change nothing: they kept swinging from
+-- their back, because canAttack only ever asked whether they were
+-- sprinting.
+BNS.Combat.flagProbe = {}
+local downBrain = newBrain(axe)
+local downNpc, downFoe = makeNPC(downBrain, 0, 0), makePlayer(1, 0)
+BNS.Combat.attack(downNpc, downBrain, downFoe) -- start a swing
+assert(downBrain.swingPhase == "windup")
+BNS.Combat.goDown(downNpc, downBrain)
+assert(BNS.Combat.isDown(downBrain), "they are on the floor")
+assert(not BNS.Combat.canAttack(downBrain), "and cannot attack from there")
+assert(downBrain.swingPhase == nil, "the swing they were mid-way through is dropped")
+run(downNpc, downBrain, downFoe, 100)
+assert(#downFoe.hits == 0, "nothing lands while they are down")
+
+-- A gun is no different, and a reload does not finish on your back.
+local downGun = newBrain(pistol)
+local downGunner, downMark = makeNPC(downGun, 0, 0), makePlayer(5, 0)
+BNS.Combat.ensureAmmo(downGun)
+downGun.reloadTimer = 90
+BNS.Combat.goDown(downGunner, downGun)
+assert(downGun.reloadTimer == nil, "the magazine change is dropped too")
+run(downGunner, downGun, downMark, 100)
+assert(#downMark.hits == 0, "and no shots are fired from the floor")
+
+-- They get up on their own: the state always expires.
+run(downNpc, downBrain, downFoe, BNS.Combat.GETUP_TICKS + 5)
+assert(not BNS.Combat.isDown(downBrain), "they get back up")
+assert(BNS.Combat.canAttack(downBrain), "and can fight again")
+print("downed bandits do not fight OK")
+
+-- An engine flag that never clears must not park them for good. This is
+-- the setUseless lesson: an unverified answer gets a deadline.
+BNS.Combat.flagProbe = {}
+local stuckBrain = newBrain(axe)
+local stuckNpc = makeNPC(stuckBrain, 0, 0)
+function stuckNpc:isKnockedDown() return true end -- and never stops saying so
+local downTicks = 0
+while downTicks < BNS.Combat.DOWN_MAX * 2 do
+    step(stuckNpc, stuckBrain, downFoe)
+    downTicks = downTicks + 1
+    if downTicks > BNS.Combat.DOWN_MAX and not BNS.Combat.isDown(stuckBrain) then break end
+end
+assert(not BNS.Combat.isDown(stuckBrain),
+    "a flag stuck on true stops being believed rather than downing them for ever")
+print("downed state has a deadline OK (" .. downTicks .. " ticks)")
+
+-- 13. A shove knocks them over; it does not hurt them -----------------------------------
+-- Shoving landed full weapon damage, so a player could push a bandit to
+-- death without ever swinging at them.
+BNS.Combat.flagProbe = {}
+local shover = { shoving = true, stomping = false }
+function shover:isPerformingShoveAnimation() return self.shoving end
+function shover:isPerformingStompAnimation() return self.stomping end
+assert(BNS.Combat.isShove(shover, nil, 0), "a push is read as a shove")
+shover.shoving = false
+shover.stomping = true
+assert(not BNS.Combat.isShove(shover, nil, 0), "a stomp is not a shove")
+assert(BNS.Combat.isStomp(shover), "and is read as a stomp")
+
+-- Builds that answer neither fall back to the damage the hit carried.
+BNS.Combat.flagProbe = {}
+local silent = {}
+assert(BNS.Combat.isShove(silent, nil, 0), "no damage means a push")
+assert(not BNS.Combat.isShove(silent, nil, 1.4), "damage means a swing")
+assert(not BNS.Combat.isShove(silent, nil, nil),
+    "an unknown damage is never guessed into a shove -- that would make them immune")
+print("shove and stomp are told apart OK")
+
+-- ...and the rule the hit event applies, end to end.
+BNS.Combat.flagProbe = {}
+local victimBrain = newBrain(axe)
+local victimNpc = makeNPC(victimBrain, 0, 0)
+function victimNpc:setHealth() end
+local pusher = {}
+function pusher:isPerformingShoveAnimation() return true end
+function pusher:isPerformingStompAnimation() return false end
+
+local startHealth = victimBrain.health
+assert(BNS.Combat.receiveHit(victimNpc, victimBrain, pusher, nil, 2.0) == "shoved",
+    "a shove is a shove even when the engine hands it a damage number")
+assert(victimBrain.health == startHealth, "and costs them no health")
+assert(BNS.Combat.isDown(victimBrain), "it puts them on the floor instead")
+
+-- A stomp on someone already down is exactly what should hurt.
+local stomper = {}
+function stomper:isPerformingShoveAnimation() return false end
+function stomper:isPerformingStompAnimation() return true end
+assert(BNS.Combat.receiveHit(victimNpc, victimBrain, stomper, nil, 1.0) == "hurt",
+    "stomping a downed bandit hurts them")
+assert(victimBrain.health < startHealth, "and takes health off")
+
+-- So is a weapon swing at one.
+local swung = victimBrain.health
+assert(BNS.Combat.receiveHit(victimNpc, victimBrain, silent, nil, 2.0) == "hurt",
+    "a swing at a downed bandit hurts them")
+assert(victimBrain.health < swung, "and takes health off")
+
+-- Pushing them again while they are already down is a stomp, not a free
+-- reset: there is no shoving a bandit to death.
+local floored = victimBrain.health
+assert(BNS.Combat.receiveHit(victimNpc, victimBrain, pusher, nil, 1.0) == "hurt",
+    "a push at someone already on the floor is a stomp")
+assert(victimBrain.health < floored, "which hurts")
+print("hit rule OK (shove floors, weapons and stomps hurt)")
+
+-- 14. Taking a hit spoils a swing in progress -------------------------------------------
 local hurtBrain = newBrain(axe)
 local hurtNpc, foe = makeNPC(hurtBrain, 0, 0), makePlayer(1, 0)
 BNS.Combat.attack(hurtNpc, hurtBrain, foe)

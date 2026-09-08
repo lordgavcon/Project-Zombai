@@ -393,6 +393,7 @@ function BNS.DebugUI:rebuildList()
             if npc.warned then flags = flags .. " [warned]" end
             if npc.reloading then flags = flags .. " [reloading]"
             elseif npc.ammo then flags = flags .. string.format(" [%d+%dmag]", npc.ammo, npc.mags or 0) end
+            if npc.down then flags = flags .. " [DOWN]" end
             if npc.swing then flags = flags .. " [" .. npc.swing .. "]" end
             if npc.stamina and npc.stamina < 0.6 then
                 flags = flags .. string.format(" [winded %d%%]", math.floor(npc.stamina * 100))

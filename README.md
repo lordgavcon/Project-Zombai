@@ -30,7 +30,10 @@
   melee backup and come for you. Accuracy is earned by holding still —
   a bandit who has been walking shoots badly — and they won't shoot
   through a wall. Let one walk into your face and it gives ground rather
-  than surrendering its range advantage. Two-handed weapons are carried
+  than surrendering its range advantage. Shove one and they go down
+  without taking a scratch — a push is not an attack — and while they are
+  on the floor they stop fighting entirely; health only moves when you
+  swing at them or stomp on them down there. Two-handed weapons are carried
   and swung in two hands, and each swing clip is held for the whole
   recovery beat, so the animation plays out rather than being cut off part
   way through. The whole attack pace is one

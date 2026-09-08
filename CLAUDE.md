@@ -200,6 +200,19 @@ Two invariants worth keeping in mind when touching the debug code:
   used to, filling the off hand only for guns and deciding even that by
   testing for a setter on the item, so every axe, bat, spear and rifle was
   carried and swung one-handed.
+- **A shove is not an attack, and a downed bandit is out of the fight.**
+  `BNS.Combat.receiveHit` owns the rule: a push floors them and costs no
+  health, while a swing or a stomp hurts — a push at someone *already*
+  down is a stomp, so there is no shoving a bandit to death. Being down is
+  `brain.downTimer`, which gates `canAttack` and `isBusy` and makes
+  BNS_Brain skip the whole tick; the engine owns the fall, the get-up and
+  the on-ground animation (which is why the overlays cover no on-ground
+  state). The engine flags behind it are narrow on purpose —
+  `isOnFloor` is IsoMovingObject's "standing on a floor tile" and is true
+  of everyone upright, so reading it would down every NPC — and the state
+  always expires on its own timer, with `DOWN_MAX` capping how long an
+  engine answer is believed. An unverified flag stuck on true must never
+  park an NPC for good; that is the `setUseless` lesson.
 - **Being "busy" is latched, and programs must honour it.**
   `BNS.Combat.isBusy` is true while reloading or blown, and blown latches
   until `RECOVERED` — without the latch a bandit crosses back over the

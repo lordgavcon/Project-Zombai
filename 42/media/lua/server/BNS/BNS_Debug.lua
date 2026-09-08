@@ -127,6 +127,7 @@ function BNS.Debug.snapshot(player)
             reloading = brain and brain.reloadTimer ~= nil or false,
             stamina = brain and brain.stamina or nil,
             swing = brain and brain.swingPhase or nil,
+            down = brain and BNS.Combat.isDown(brain) or false,
             grabbed = brain and brain.grabbedTimer ~= nil or false,
             door = brain and brain.door ~= nil or false,
             paths = brain and brain.pathCount or 0,
@@ -571,6 +572,23 @@ BNS.Debug.Scenarios = {
             brain.ammo.mag, brain.ammo.left, brain.ammo.spares = 4, 4, 1
             brain.warned, brain.warnTimer = true, nil
             brain.program = BNS.Program.ATTACK
+        end,
+    },
+    shove = {
+        label = "Shove + stomp",
+        watch = "shoving the bandit puts them on the floor and costs them "
+            .. "no health at all; they stop swinging until they are up. "
+            .. "Health only moves when you stomp or swing at them down there",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if not shell then return end
+            local brain = BNS.brain(shell)
+            brain.weapon = { item = "Base.BaseballBat", dmg = 0.16, range = 1.4, gun = false }
+            brain.warned, brain.warnTimer = true, nil
+            brain.program = BNS.Program.ATTACK
+            note(player, string.format("%s at %d%% health -- watch the NPCs tab",
+                brain.name, math.floor((brain.health or 1) * 100)))
         end,
     },
     duel = {
