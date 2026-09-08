@@ -187,6 +187,16 @@ BNS.Programs[BNS.Program.FIGHTZ] = function(zombie, brain, ctx)
     end
     local w = brain.weapon or {}
     local d = BNS.dist(zombie:getX(), zombie:getY(), target:getX(), target:getY())
+    -- Mid-reload or blown: give ground rather than stand there working
+    -- the action with a zombie on you. Same rule as a player fight.
+    if BNS.Combat.isBusy(brain) then
+        if d < 6 then
+            BNS.Programs.backAway(zombie, brain, target:getX(), target:getY(), 6, true)
+        else
+            BNS.Programs.stopMoving(zombie, brain, "idle")
+        end
+        return
+    end
     -- Close at a run, or plant and swing -- never swinging mid-sprint.
     if w.gun then
         if d > w.range then
@@ -199,7 +209,8 @@ BNS.Programs[BNS.Program.FIGHTZ] = function(zombie, brain, ctx)
         if d > (w.range or 1.3) then
             BNS.Programs.walkTo(zombie, target:getX(), target:getY(), target:getZ(), true)
         else
-            BNS.Programs.stopMoving(zombie, brain, "idle")
+            -- The swing cycle owns the animation from windup to recovery.
+            BNS.Programs.stopMoving(zombie, brain, brain.swingPhase and nil or "idle")
             BNS.Combat.attackZombie(zombie, brain, target)
         end
     end

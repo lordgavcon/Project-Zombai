@@ -35,7 +35,15 @@ function BNS.Spawner.rollWeapon(tier, archetype)
         local g = BNS.Loadouts.pick(guns)
         return { item = g.item, dmg = g.dmg, range = g.range, gun = true, sound = g.sound, hit = g.hit }
     end
-    local melee = def and def.melee or BNS.Loadouts.Melee[tier] or BNS.Loadouts.Melee[BNS.Tier.CIVILIAN]
+    return BNS.Spawner.rollMelee(tier, archetype)
+end
+
+-- Split out because a gunner also needs one: when the last magazine runs
+-- out they draw this and close (BNS.Combat.drawBackup).
+function BNS.Spawner.rollMelee(tier, archetype)
+    local def = BNS.Archetypes.get(archetype)
+    local melee = def and def.melee or BNS.Loadouts.Melee[tier]
+        or BNS.Loadouts.Melee[BNS.Tier.CIVILIAN]
     local m = BNS.Loadouts.pick(melee)
     return { item = m.item, dmg = m.dmg, range = m.range, gun = false }
 end
@@ -97,6 +105,7 @@ function BNS.Spawner.materialise(rec)
         targetY = rec.targetY,
         health = rec.health or 1.0,
         weapon = rec.weapon or BNS.Spawner.rollWeapon(rec.tier),
+        stamina = 1.0,
         squad = rec.squad,
         home = rec.home,
         stock = rec.stock,
@@ -106,6 +115,13 @@ function BNS.Spawner.materialise(rec)
         speechCooldown = 0,
     }
     rec.weapon = brain.weapon
+    -- Gunners carry something for when the ammunition runs out. Rolled
+    -- once and kept on the record so the same bandit always falls back to
+    -- the same weapon.
+    if brain.weapon and brain.weapon.gun then
+        rec.backup = rec.backup or BNS.Spawner.rollMelee(rec.tier, rec.archetype)
+        brain.backup = rec.backup
+    end
     zombie:getModData().BNS = brain
     BNS.Anim.init(zombie, brain)
     -- Stop it looking like a corpse: living skin, no blood, real hair.

@@ -19,6 +19,18 @@
 - **Scavenging** — NPCs loot buildings for supplies and equipment as they travel. They take the valuables (weapons, ammo, food, meds) and leave the evidence: low-value items stay in the container and a piece or two ends up scattered on the floor, so a half-emptied cupboard with junk around it tells you someone living has been through. Looted spots are skipped for a few in-game days, kill a scavenger and their haul drops with them, and traders convert what they find into sale stock — so trader inventories genuinely restock from the world. Player bases are never quietly scavenged; only raids touch your stuff. Sandbox-toggleable.
 - **Vehicles** — NPCs claim parked vehicles (never ones at your base), stash their scavenged haul in the *real* trunk — raid the trunk or steal the whole vehicle and the loot is yours — and travel with them: while off-screen an NPC with a vehicle covers ~5× the ground of one on foot, and the pair rematerialise together, so you'll meet the same scavenger and their loaded car towns apart. Near players there's no faked driving: NPCs are found parked, walking to, or loading their vehicle, and "drive off" by despawning at it. About half of base raids arrive with a pickup truck; everything raiders steal from you goes into its trunk, so wiping out the crew before they leave gets your stuff back.
 - **Survivors & traders** — neutral NPCs wander the world. Right-click a survivor to talk (they drop rumours, including militia base warnings); right-click a trader to open a barter window and trade your goods against their stock, valued item-for-item. **Traders stop and turn to face you** as soon as you get within about five tiles, so you can actually catch one; survivors halt once you're right beside them.
+- **They fight like players, not like turrets.** A swing is a windup, a
+  contact and a recovery: the axe comes up before it comes down, and if
+  you step out of reach while it is up, the bandit commits and whiffs —
+  and a whiff leaves them open longer than a hit does. Heavier weapons are
+  slower through every beat, swinging is tiring, and a winded bandit
+  swings slower and backs off to get their breath. Firearms carry a real
+  magazine: they fire in bursts, run dry, shout *"Reloading!"* and break
+  contact to do it, and when the spares are gone they drop the gun to a
+  melee backup and come for you. Accuracy is earned by holding still —
+  a bandit who has been walking shoots badly — and they won't shoot
+  through a wall. Let one walk into your face and it gives ground rather
+  than surrendering its range advantage.
 - **NPCs amble, they don't march** — wandering is a slow walk with pauses. On reaching somewhere an NPC usually stands around for ten to fifty seconds before picking a new destination, so a street with people on it looks lived-in rather than like a parade. Zombies nearby cancel the standing about; a player watching does not.
 - **Persistence** — every NPC is a record in global mod data. NPCs near players are fully simulated ("live"); distant ones are *virtualised* — despawned but still travelling the map abstractly — and rematerialise when you come near their current position. State survives save/load and server restarts.
 - **Multiplayer compatible** — all AI, combat, robbery, raid and trade logic runs on the server; clients only render speech/UI and send trade proposals, which the server validates (no client-side item forging). The same server code runs in-process in single player, so SP and MP share one code path.
@@ -162,6 +174,14 @@ Non-admin requests are dropped and logged.
   few calls (e.g. `IsoBarricade.AddBarricadeToObject`, outfit names) may
   need renaming against the current javadocs. Everything is guarded where
   practical; check `console.txt` for `[BNS]` lines.
+- **Firearm behaviour is simulated, not driven by real ammunition.**
+  Magazine sizes, reload times and burst discipline live in
+  `BNS.Loadouts.Magazines` and are gameplay numbers, not the values of the
+  vanilla items — an NPC does not consume real bullets from an inventory,
+  and reloading is a timer rather than a `ISReloadWeaponAction`. Tune the
+  table if a gun feels wrong. The reload has no sound of its own, because
+  a sound name cannot be verified offline; the tell is the weapon coming
+  down, the callout, and the bandit giving ground.
 - **Shell suppression is deliberately minimal.** `BNS.Suppress` in
   `BNS_Core.lua` gates the calls that stop a shell behaving like a zombie.
   Only clearing its target is on by default — `setUseless` and

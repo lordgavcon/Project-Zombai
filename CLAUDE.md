@@ -153,6 +153,26 @@ Two invariants worth keeping in mind when touching the debug code:
   Fortifying and stocking are gated on it; the approach ring is measured
   from the building's centre. Never reintroduce a radius test for what
   counts as inside a stronghold.
+- **Combat is a rhythm, not a cooldown.** A melee swing is windup ->
+  contact -> recovery (`BNS.Combat.WINDUP` / `RECOVER`, scaled by the
+  weapon's class through `SwingWeight`). It *commits* at the windup, so a
+  target that steps out of reach before contact makes it whiff, and a
+  whiff costs `WHIFF_PENALTY` times the recovery a hit does. Firearms
+  carry a magazine (`BNS.Loadouts.Magazines`), fire in bursts, reload for
+  real, and fall back to `brain.backup` when the spares run out.
+  Accuracy ramps with `brain.aimTicks` and is reset by
+  `BNS.Programs.walkTo`, so movement costs a settled aim.
+  **Every combat timer is decremented in `BNS.Combat.tick` and nowhere
+  else**, which BNS_Brain runs on every engine tick: that is what lets a
+  reload finish while its owner is running away, and it is why no caller
+  may decrement one itself. `brain.attackTimer` is *not* a combat timer
+  any more — `BNS_Raids` still uses it for sabotage.
+- **Being "busy" is latched, and programs must honour it.**
+  `BNS.Combat.isBusy` is true while reloading or blown, and blown latches
+  until `RECOVERED` — without the latch a bandit crosses back over the
+  winded line by a hair, throws one swing that spends it again, and
+  twitches in and out of a retreat all fight. ATTACK and FIGHTZ both back
+  away while busy rather than standing there.
 - **The engagement telegraph is a warning shot, not a shout.** A gun-armed
   bandit opens with `BNS.Combat.warningShot` — the real held weapon, its
   own sound via `getSwingSound()`, no damage roll — and `warnTimer` holds

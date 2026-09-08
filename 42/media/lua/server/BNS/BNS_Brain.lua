@@ -12,6 +12,7 @@ require "BNS/BNS_Core"
 require "BNS/BNS_Persistence"
 require "BNS/BNS_Spawner"
 require "BNS/BNS_Programs"
+require "BNS/BNS_Combat"
 require "BNS/BNS_Anim"
 require "BNS/BNS_ZombieThreat"
 require "BNS/BNS_Doors"
@@ -64,6 +65,10 @@ local function updateNPC(zombie, brain)
     end
     BNS.Anim.tick(zombie, brain)
     BNS.Look.tick(zombie, brain)
+    -- Swing cycle, magazine, reload and breath. Every combat timer is
+    -- decremented here and nowhere else, so a reload finishes even while
+    -- its owner is walking away and no timer can be counted down twice.
+    BNS.Combat.tick(zombie, brain)
     -- Held by a zombie: struggle in place, no moving or attacking until
     -- the grip breaks (the ~1/s threat scan below keeps applying the
     -- crowd's scratches while held).

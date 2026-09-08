@@ -22,6 +22,7 @@ require "BNS/BNS_POIs"
 require "BNS/BNS_Persistence"
 require "BNS/BNS_Spawner"
 require "BNS/BNS_Programs"
+require "BNS/BNS_Combat"
 require "BNS/BNS_Bases"
 require "BNS/BNS_Raids"
 require "BNS/BNS_Locks"
@@ -121,6 +122,11 @@ function BNS.Debug.snapshot(player)
             weapon = rec.weapon and rec.weapon.item or nil,
             gun = rec.weapon and rec.weapon.gun or false,
             warned = brain and brain.warned or false,
+            ammo = brain and brain.ammo and brain.ammo.left or nil,
+            mags = brain and brain.ammo and brain.ammo.spares or nil,
+            reloading = brain and brain.reloadTimer ~= nil or false,
+            stamina = brain and brain.stamina or nil,
+            swing = brain and brain.swingPhase or nil,
             grabbed = brain and brain.grabbedTimer ~= nil or false,
             door = brain and brain.door ~= nil or false,
             paths = brain and brain.pathCount or 0,
@@ -506,6 +512,42 @@ BNS.Debug.Scenarios = {
                 brain.restUntil = nil
                 BNS.Debug.animProbe(player, { id = ids[1] })
             end
+        end,
+    },
+    firefight = {
+        label = "Firefight (magazine + reload)",
+        watch = "militia fires in bursts, runs the magazine dry, calls "
+            .. "\"reloading\" and breaks contact, then comes back on; out of "
+            .. "spares they draw a blade and close",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "exmilitary", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if not shell then return end
+            local brain = BNS.brain(shell)
+            -- Guarantee the gun, and a thin belt so the reload and the
+            -- run dry both happen inside a minute rather than eventually.
+            brain.weapon = { item = "Base.Pistol", dmg = 0.30, range = 10,
+                sound = "9mmShot", hit = 45, gun = true }
+            brain.backup = BNS.Spawner.rollMelee(brain.tier, brain.archetype)
+            brain.ammo = BNS.Combat.gunProfile(brain)
+            brain.ammo.mag, brain.ammo.left, brain.ammo.spares = 4, 4, 1
+            brain.warned, brain.warnTimer = true, nil
+            brain.program = BNS.Program.ATTACK
+        end,
+    },
+    duel = {
+        label = "Melee duel (windup + recovery)",
+        watch = "the axe comes up before it comes down -- step back during "
+            .. "the windup and it whiffs, and the whiff leaves a longer "
+            .. "opening than a hit does; they tire and give ground",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "firefighter", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if not shell then return end
+            local brain = BNS.brain(shell)
+            brain.weapon = { item = "Base.Axe", dmg = 0.24, range = 1.3, gun = false }
+            brain.warned, brain.warnTimer = true, nil
+            brain.program = BNS.Program.ATTACK
         end,
     },
     warning = {

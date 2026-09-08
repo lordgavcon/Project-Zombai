@@ -96,6 +96,8 @@ function BNS.Programs.walkTo(zombie, x, y, z, run)
         brain.pathX, brain.pathY, brain.pathRun = x, y, run == true
         brain.pathCount = (brain.pathCount or 0) + 1
         brain.stopped = nil
+        -- Moving spoils a settled aim, the same way it does for a player.
+        brain.aimTicks = 0
     end
     if zombie.pathToLocationF then
         zombie:pathToLocationF(x, y, z or 0)
@@ -324,6 +326,31 @@ local function endEngagement(brain)
     brain.program = brain.home and BNS.Program.DEFEND or BNS.Program.WANDER
 end
 
+-- Footwork ---------------------------------------------------------------
+--
+-- Give ground: walk to a point directly away from something, capped so a
+-- bandit backs off rather than bolting. Used for the beat after a swing,
+-- for a gunner whose magazine is empty, and for one who has let the
+-- player walk inside their weapon's useful range.
+function BNS.Programs.backAway(zombie, brain, fromX, fromY, tiles, run)
+    local dx = zombie:getX() - fromX
+    local dy = zombie:getY() - fromY
+    local d = math.max(BNS.dist(0, 0, dx, dy), 0.1)
+    BNS.Programs.walkTo(zombie,
+        zombie:getX() + dx / d * tiles,
+        zombie:getY() + dy / d * tiles, zombie:getZ(), run == true)
+end
+
+-- How close a gunner lets a player get before giving ground rather than
+-- standing there being hit, as a fraction of the weapon's range. A
+-- shotgun is happy much closer than a hunting rifle is.
+BNS.Programs.STANDOFF_MIN = 0.30
+BNS.Programs.STANDOFF_KEEP = 0.60
+
+-- The chance a melee bandit uses their recovery beat to step out rather
+-- than stand in your face. Not every swing, or they never close.
+BNS.Programs.STEP_BACK_CHANCE = 40
+
 BNS.Programs[BNS.Program.ATTACK] = function(zombie, brain, ctx)
     local p = ctx.player
     if not p or ctx.dist > 50 or p:isDead() then
@@ -344,23 +371,59 @@ BNS.Programs[BNS.Program.ATTACK] = function(zombie, brain, ctx)
         end
         return
     end
+
+    -- Reloading or blown: get off the line first, fight after. This is
+    -- the window the whole magazine model exists to create.
+    if BNS.Combat.isBusy(brain) then
+        if not brain.reloadTimer then
+            BNS.Say(zombie, brain, getText("UI_BNS_Winded"))
+        end
+        if ctx.dist < 8 then
+            BNS.Programs.backAway(zombie, brain, p:getX(), p:getY(), 8, true)
+        else
+            BNS.Programs.stopMoving(zombie, brain, "idle")
+        end
+        return
+    end
+
     -- Close the distance at a run, or stand and fight -- never both at
     -- once. BNS.Combat refuses to attack while running.
     if w.gun then
-        if ctx.dist > w.range * 0.8 then
+        local range = w.range or 10
+        if ctx.dist < range * BNS.Programs.STANDOFF_MIN then
+            -- Let a player walk into your muzzle and you lose the gun's
+            -- whole advantage: open the range back up instead.
+            BNS.Programs.backAway(zombie, brain, p:getX(), p:getY(),
+                range * BNS.Programs.STANDOFF_KEEP, true)
+        elseif ctx.dist > range * 0.8 then
             BNS.Programs.walkTo(zombie, p:getX(), p:getY(), p:getZ(), true)
         else
             BNS.Programs.stopMoving(zombie, brain, "aim")
             BNS.Combat.attack(zombie, brain, p)
         end
-    else
-        if ctx.dist > (w.range or 1.3) then
-            BNS.Programs.walkTo(zombie, p:getX(), p:getY(), p:getZ(), true)
-        else
-            BNS.Programs.stopMoving(zombie, brain, "idle")
-            BNS.Combat.attack(zombie, brain, p)
-        end
+        return
     end
+
+    local reach = w.range or 1.3
+    if ctx.dist > reach then
+        BNS.Programs.walkTo(zombie, p:getX(), p:getY(), p:getZ(), true)
+        return
+    end
+    -- In reach. The recovery beat after a swing is the opening the
+    -- player gets, so spend some of it stepping out of theirs rather
+    -- than standing toe to toe -- which is what trading blows looks
+    -- like from the outside.
+    if brain.swingPhase == "recover" and not brain.steppedBack
+            and ZombRand(100) < BNS.Programs.STEP_BACK_CHANCE then
+        brain.steppedBack = true
+        BNS.Programs.backAway(zombie, brain, p:getX(), p:getY(), 2, false)
+        return
+    end
+    if brain.swingPhase ~= "recover" then brain.steppedBack = nil end
+    -- Halt, but leave the animation alone once a swing is under way: the
+    -- cycle owns it from the windup to the end of the recovery.
+    BNS.Programs.stopMoving(zombie, brain, brain.swingPhase and nil or "idle")
+    BNS.Combat.attack(zombie, brain, p)
 end
 
 -- FLEE ------------------------------------------------------------------

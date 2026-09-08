@@ -153,25 +153,29 @@ local fighter = makeZ(0, 0, { brain = { id = "f", tier = BNS.Tier.THUG, health =
 local fb = fighter:getModData().BNS
 fb.weapon = { item = "Base.Axe", dmg = 0.26, range = 1.3, gun = false }
 local prey = makeZ(1, 0)
-local swings = 0
-while not prey:isDead() and swings < 100 do
-    fb.attackTimer = 0
+-- Combat runs on engine ticks now: BNS.Combat.tick is what advances the
+-- swing cycle, the magazine and the fighter's breath, so the fight is
+-- driven by letting time pass rather than by zeroing a cooldown.
+local ticks = 0
+while not prey:isDead() and ticks < 4000 do
+    BNS.Combat.tick(fighter, fb)
     BNS.Combat.attackZombie(fighter, fb, prey)
-    swings = swings + 1
+    ticks = ticks + 1
 end
 assert(prey:isDead(), "zombie dies to melee")
-print("melee kill OK in " .. swings .. " swings")
+print("melee kill OK in " .. ticks .. " ticks")
 
 fb.weapon = { item = "Base.Shotgun", dmg = 0.55, range = 7, gun = true, sound = "ShotgunShot", hit = 60 }
 local prey2 = makeZ(3, 0)
-local shots = 0
-while not prey2:isDead() and shots < 100 do
-    fb.attackTimer = 0
+fb.ammo, fb.shotTimer, fb.burstLeft, fb.aimTicks = nil, nil, nil, nil
+local gunTicks = 0
+while not prey2:isDead() and gunTicks < 6000 do
+    BNS.Combat.tick(fighter, fb)
     BNS.Combat.attackZombie(fighter, fb, prey2)
-    shots = shots + 1
+    gunTicks = gunTicks + 1
 end
 assert(prey2:isDead(), "zombie dies to gunfire")
-print("gun kill OK in " .. shots .. " shots")
+print("gun kill OK in " .. gunTicks .. " ticks")
 
 -- 6. FIGHTZ program drives at the target --------------------------------
 BNS.ZombieThreat.targets["f"] = makeZ(4, 0)
@@ -231,15 +235,26 @@ sb.weapon = { item = "Base.Axe", dmg = 0.26, range = 1.3, gun = false }
 sb.warned = true
 local prey = makeZ(1, 0)
 sb.animMode = "run"
-sb.attackTimer = 0
-BNS.Combat.attackZombie(sprinter, sb, prey)
+for _ = 1, 240 do
+    BNS.Combat.tick(sprinter, sb)
+    BNS.Combat.attackZombie(sprinter, sb, prey)
+end
 assert(prey.health == 2.0, "no swing while running")
 assert(not BNS.Combat.canAttack(sb), "canAttack says no while running")
 
 sb.animMode = "walk"
-sb.attackTimer = 0
-BNS.Combat.attackZombie(sprinter, sb, prey)
-assert(prey.health < 2.0, "walking is fine to swing from")
+-- A swing is a windup, a contact and a recovery, so it lands a beat
+-- after it is ordered rather than on the same tick -- which is the gap
+-- the player gets to step out of it.
+local before = prey.health
+local hitTicks = 0
+while prey.health == before and hitTicks < 900 do
+    BNS.Combat.tick(sprinter, sb)
+    BNS.Combat.attackZombie(sprinter, sb, prey)
+    hitTicks = hitTicks + 1
+end
+assert(prey.health < before, "walking is fine to swing from")
+assert(hitTicks > 1, "and the swing has a windup rather than landing instantly")
 assert(BNS.Combat.canAttack(sb), "canAttack allows walking")
 
 sb.animMode = "idle"
@@ -261,9 +276,14 @@ assert(farTarget.health == 2.0, "and does not swing while closing")
 
 local closeTarget = makeZ(1, 0)
 BNS.ZombieThreat.targets["z9"] = closeTarget
-zb.attackTimer = 0
 BNS.Programs[BNS.Program.FIGHTZ](fighter, zb, { dist = 999 })
 assert(zb.animMode ~= "run", "stops on arrival, mode is " .. tostring(zb.animMode))
+local plantTicks = 0
+while closeTarget.health == 2.0 and plantTicks < 900 do
+    BNS.Combat.tick(fighter, zb)
+    BNS.Programs[BNS.Program.FIGHTZ](fighter, zb, { dist = 999 })
+    plantTicks = plantTicks + 1
+end
 assert(closeTarget.health < 2.0, "then swings")
 print("FIGHTZ close-then-plant OK")
 
@@ -477,7 +497,7 @@ assert(not gunner.warned, "and they are not yet committed")
 -- Nothing lands during those 4 seconds, however often combat is called.
 for _ = 1, 239 do
     gunner.warnTimer = gunner.warnTimer - 1
-    gunner.attackTimer = 0
+    BNS.Combat.tick(gz, gunner)
     BNS.Combat.attack(gz, gunner, victim)
 end
 assert(#victim.hits == 0, "no damage during the warning window")
@@ -485,9 +505,17 @@ gunner.warnTimer = gunner.warnTimer - 1
 if gunner.warnTimer <= 0 then gunner.warnTimer = nil; gunner.warned = true end
 assert(gunner.warned, "after 4 seconds they commit")
 
-gunner.attackTimer = 0
+-- The warning shot came out of the magazine like any other round.
+assert(gunner.ammo and gunner.ammo.left == gunner.ammo.mag - 1,
+    "the warning round is spent, left " .. tostring(gunner.ammo and gunner.ammo.left))
+
 gunner.animMode = "idle"
-BNS.Combat.attack(gz, gunner, victim)
+local fireTicks = 0
+while #victim.hits == 0 and fireTicks < 2000 do
+    BNS.Combat.tick(gz, gunner)
+    BNS.Combat.attack(gz, gunner, victim)
+    fireTicks = fireTicks + 1
+end
 assert(#victim.hits > 0, "and then shots land normally")
 print("warning shot + 4s delay OK")
 

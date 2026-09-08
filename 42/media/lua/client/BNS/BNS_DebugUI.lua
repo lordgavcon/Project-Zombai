@@ -391,6 +391,12 @@ function BNS.DebugUI:rebuildList()
             if npc.door then flags = flags .. " [door]" end
             if npc.grabbed then flags = flags .. " [grabbed]" end
             if npc.warned then flags = flags .. " [warned]" end
+            if npc.reloading then flags = flags .. " [reloading]"
+            elseif npc.ammo then flags = flags .. string.format(" [%d+%dmag]", npc.ammo, npc.mags or 0) end
+            if npc.swing then flags = flags .. " [" .. npc.swing .. "]" end
+            if npc.stamina and npc.stamina < 0.6 then
+                flags = flags .. string.format(" [winded %d%%]", math.floor(npc.stamina * 100))
+            end
             if not npc.live then flags = flags .. " [virtual]" end
             local text = string.format("%-16s %-11s %-11s hp%3d%% %4dm  pack %d%s",
                 npc.name or "?", npc.archetype or npc.role, npc.program or "?",
