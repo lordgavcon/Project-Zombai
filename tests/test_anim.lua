@@ -225,6 +225,122 @@ assert(BNS.Look.support["clear dirt"] == false, "records what does not")
 assert(#BNS.Look.report() >= 6, "reports a line per operation")
 print("living-look pass OK (" .. applied .. " ops applied)")
 
+-- 5b. Zombie rot, human skin, and the moan -----------------------------------------------
+-- Restyling the skin *index* never stopped shells reading as corpses:
+-- HumanVisual carries a zombieRotStage the texture creator composites
+-- over the body, and IsoZombie rolls one at spawn.
+BNS.Look.support = {}
+BNS.Look.broken = {}
+BNS.Look.clearSkinCache()
+
+local rotVisual = { zombieRotStage = 3, skinIndex = nil, skinName = nil }
+function rotVisual:setSkinTextureIndex(i) self.skinIndex = i end
+function rotVisual:setSkinTextureName(n) self.skinName = n end
+function rotVisual:getSkinTexture() return self.skinName or "M_Bod_Test" end
+function rotVisual:isZombie() return true end
+
+-- A living character this build definitely has, so the texture name is
+-- read rather than guessed.
+function getSpecificPlayer(i)
+    if i ~= 0 then return nil end
+    return { getHumanVisual = function() return {
+        getSkinTexture = function() return "M_Bod_Living" end } end }
+end
+
+local rebuilt = false
+local rotShell = {
+    getHumanVisual = function() return rotVisual end,
+    getItemVisuals = function() return nil end,
+    checkUpdateModelTextures = function() rebuilt = true end,
+}
+BNS.Look.apply(rotShell, { look = { skin = 1 } })
+assert(rotVisual.zombieRotStage == 0, "the rot stage is zeroed, got "
+    .. tostring(rotVisual.zombieRotStage))
+assert(BNS.Look.support["no zombie rot"] == true, "and reported as working")
+assert(rotVisual.skinName == "M_Bod_Living",
+    "a living character's own skin texture is copied on, got "
+        .. tostring(rotVisual.skinName))
+assert(rebuilt, "the composited body texture is rebuilt afterwards")
+
+-- A build that will not let the field be written must report [no], not a
+-- silent success: "the call did not error" is not proof anything changed.
+BNS.Look.support = {}
+BNS.Look.broken = {}
+local stubborn = setmetatable({}, { __newindex = function() end, __index = function(t, k)
+    if k == "zombieRotStage" then return 4 end
+    return nil
+end })
+BNS.Look.apply({ getHumanVisual = function() return stubborn end,
+                 getItemVisuals = function() return nil end }, { look = {} })
+assert(BNS.Look.support["no zombie rot"] == false,
+    "a rot stage that would not move is reported as not working")
+print("zombie rot and skin texture OK")
+
+-- The moan is an ordinary emitter sound with a name the shell will give
+-- us, so it is stopped by name -- and only that name, because stopAll()
+-- would take the footsteps and BNS's own gunshots with it.
+BNS.Look.support = {}
+BNS.Look.broken = {}
+BNS.Look.hushProbe = nil
+local playing = { ["ZombieIdle"] = true, ["ZombieBite"] = true, ["ShotgunShot"] = true }
+local stopped = {}
+local voiceShell = {
+    getVoiceSoundName = function() return "ZombieIdle" end,
+    getBiteSoundName = function() return "ZombieBite" end,
+    getEmitter = function() return {
+        isPlaying = function(_, name) return playing[name] == true end,
+        stopSoundByName = function(_, name)
+            playing[name] = nil
+            table.insert(stopped, name)
+        end,
+    } end,
+}
+local vBrain = {}
+for _ = 1, 40 do BNS.Look.hush(voiceShell, vBrain) end
+assert(#stopped >= 2, "the moan and the bite are both cut, got " .. #stopped)
+assert(playing["ShotgunShot"], "and nothing else is touched")
+assert(BNS.Look.support["no zombie moan"] == true, "reported as working")
+
+-- Cutting a moan is throttled: it cannot be an engine call per tick.
+local checks = 0
+local countingShell = {
+    getVoiceSoundName = function() return "ZombieIdle" end,
+    getEmitter = function()
+        checks = checks + 1
+        return { isPlaying = function() return false end,
+                 stopSoundByName = function() end }
+    end,
+}
+local cBrain = {}
+for _ = 1, 240 do BNS.Look.hush(countingShell, cBrain) end
+assert(checks > 0, "it does check")
+assert(checks <= 240 / BNS.Look.HUSH_EVERY + 1,
+    "and not on every tick: " .. checks .. " emitter reads in 240")
+
+-- An emitter that throws is written off once, not several times a second
+-- for the rest of the session.
+BNS.Look.hushProbe = nil
+BNS.Look.support = {}
+BNS.Look.broken = {}
+local hushCalls = 0
+local angryShell = {
+    getVoiceSoundName = function() return "ZombieIdle" end,
+    getEmitter = function()
+        hushCalls = hushCalls + 1
+        error("no emitter on this build")
+    end,
+}
+local aBrain = {}
+for _ = 1, 200 do BNS.Look.hush(angryShell, aBrain) end
+assert(hushCalls == 1, "a throwing emitter is asked once, got " .. hushCalls)
+assert(BNS.Look.broken["no zombie moan"], "and the failure is reported")
+BNS.Look.hushProbe = nil
+BNS.Look.support = {}
+BNS.Look.broken = {}
+getSpecificPlayer = nil
+BNS.Look.clearSkinCache()
+print("zombie moan silencing OK (" .. #stopped .. " sounds cut)")
+
 -- 6. Item visuals whose setters are per-body-part ------------------------------------
 -- The engine's ItemVisual wants setBlood(BloodBodyPartType, value); the
 -- first in-game run threw "expected 2 arguments, got 1" on every call.

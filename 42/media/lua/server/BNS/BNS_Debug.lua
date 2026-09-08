@@ -23,6 +23,7 @@ require "BNS/BNS_Persistence"
 require "BNS/BNS_Spawner"
 require "BNS/BNS_Programs"
 require "BNS/BNS_Combat"
+require "BNS/BNS_Look"
 require "BNS/BNS_Bases"
 require "BNS/BNS_Raids"
 require "BNS/BNS_Locks"
@@ -297,6 +298,14 @@ function BNS.Debug.animProbe(player, args)
         if not it then return "empty" end
         local okName, name = pcall(function() return it:getFullType() end)
         return okName and tostring(name) or "held"
+    end
+    -- What the visual says about itself, and what the restyling managed.
+    -- "The op did not error" has never been proof anything changed on
+    -- screen, and isZombie / rot stage / skin texture are the three the
+    -- eye is actually reading.
+    if BNS.Look and BNS.Look.describe then
+        note(player, "  visual: " .. BNS.Look.describe(shell))
+        for _, line in ipairs(BNS.Look.report()) do note(player, "  " .. line) end
     end
     note(player, string.format("  hands: main=%s off=%s",
         handOf("getPrimaryHandItem"), handOf("getSecondaryHandItem")))
@@ -579,6 +588,26 @@ BNS.Debug.Scenarios = {
             brain.ammo.mag, brain.ammo.left, brain.ammo.spares = 4, 4, 1
             brain.warned, brain.warnTimer = true, nil
             brain.program = BNS.Program.ATTACK
+        end,
+    },
+    living = {
+        label = "Living look + voice",
+        watch = "the bandit's skin is a person's, not a corpse's, and they "
+            .. "make no zombie noise; PROBE on the Anim lab prints what the "
+            .. "visual says about itself and which restyling ops landed",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "cityfolk", count = 2 })
+            for _, id in ipairs(ids or {}) do
+                local shell = BNS.Debug.findNPC(id)
+                if shell then
+                    local brain = BNS.brain(shell)
+                    brain.program = BNS.Program.WANDER
+                    BNS.Look.apply(shell, brain)
+                    note(player, "  " .. tostring(brain.name) .. ": "
+                        .. BNS.Look.describe(shell))
+                end
+            end
+            for _, line in ipairs(BNS.Look.report()) do note(player, "  " .. line) end
         end,
     },
     shove = {

@@ -216,6 +216,43 @@ function BNS.Combat.isShove(attacker, weapon, damage)
     return type(damage) == "number" and damage <= 0
 end
 
+-- Facing ----------------------------------------------------------------
+--
+-- A shell points wherever the engine last left it -- usually the way it
+-- was walking -- and nothing turned it towards what it was hitting, so
+-- bandits swung with their back to the player. Facing is asserted at the
+-- start of a swing and again at contact, with a throttle in between: it
+-- is an engine command, and per-tick engine commands are what make NPCs
+-- skate (CLAUDE.md).
+BNS.Combat.FACE_EVERY = 10 -- engine ticks between re-facing mid-swing
+BNS.Combat.faceProbe = nil -- nil = untried, method name, or false = written off
+
+function BNS.Combat.face(zombie, tx, ty)
+    if BNS.Combat.faceProbe == false then return false end
+    local names = BNS.Combat.faceProbe and { BNS.Combat.faceProbe }
+        or { "faceLocationF", "faceLocation" }
+    for _, name in ipairs(names) do
+        if zombie[name] then
+            local ok = pcall(function() zombie[name](zombie, tx, ty) end)
+            if ok then
+                BNS.Combat.faceProbe = name
+                return true
+            end
+        end
+    end
+    BNS.Combat.faceProbe = false
+    BNS.log("no usable face-target call on this build; NPCs will not turn to their target")
+    return false
+end
+
+-- Turn towards a target, at most every FACE_EVERY ticks unless forced.
+function BNS.Combat.faceTarget(zombie, brain, tx, ty, force)
+    brain.faceTick = (brain.faceTick or 0) - 1
+    if not force and brain.faceTick > 0 then return end
+    brain.faceTick = BNS.Combat.FACE_EVERY
+    BNS.Combat.face(zombie, tx, ty)
+end
+
 local BODY_PARTS = {
     BodyPartType.Torso_Upper, BodyPartType.Torso_Lower,
     BodyPartType.UpperArm_L, BodyPartType.UpperArm_R,
@@ -433,9 +470,15 @@ local function meleeCycle(zombie, brain, tx, ty, range, onHit, baseChance)
     if brain.swingPhase == "recover" then return end
 
     if brain.swingPhase == "windup" then
-        if (brain.swingTimer or 0) > 0 then return end
+        if (brain.swingTimer or 0) > 0 then
+            -- Keep tracking them through the windup: a target that
+            -- circles you mid-swing should end up in front of the blow.
+            BNS.Combat.faceTarget(zombie, brain, tx, ty)
+            return
+        end
         -- Contact. Re-measure: a target that moved out of reach during
         -- the windup is a whiff, which is the player's way out of a swing.
+        BNS.Combat.faceTarget(zombie, brain, tx, ty, true)
         zombie:playSound("BaseballBatHit")
         brain.stamina = math.max((brain.stamina or 1.0) - BNS.Combat.SWING_COST, 0)
 
@@ -467,6 +510,7 @@ local function meleeCycle(zombie, brain, tx, ty, range, onHit, baseChance)
     if BNS.dist(zombie:getX(), zombie:getY(), tx, ty) > range then return end
     brain.swingPhase = "windup"
     brain.swingTimer = BNS.Combat.swingTicks(brain, BNS.Combat.WINDUP)
+    BNS.Combat.faceTarget(zombie, brain, tx, ty, true) -- square up first
     BNS.Anim.set(zombie, brain, "aim") -- weapon up, about to come down
 end
 
@@ -513,6 +557,7 @@ end
 local function fireRound(zombie, brain, tx, ty, onHit, hitChance)
     local ammo = BNS.Combat.ensureAmmo(brain)
     ammo.left = ammo.left - 1
+    BNS.Combat.faceTarget(zombie, brain, tx, ty, true)
     zombie:playSound(BNS.Combat.gunSound(zombie, brain))
     addSound(zombie, zombie:getX(), zombie:getY(), zombie:getZ(), 70, 70)
     if ZombRand(100) < hitChance then onHit() end
@@ -553,7 +598,9 @@ function BNS.Combat.shoot(zombie, brain, player)
     end
 
     -- Settling the sights is what the wait is for, so it only counts
-    -- while they are actually lined up on a target they can see.
+    -- while they are actually lined up on a target they can see -- which
+    -- means actually pointing at them, not just standing near them.
+    BNS.Combat.faceTarget(zombie, brain, player:getX(), player:getY())
     brain.aimTicks = (brain.aimTicks or 0) + 1
     if (brain.shotTimer or 0) > 0 then return end
 

@@ -213,6 +213,27 @@ Two invariants worth keeping in mind when touching the debug code:
   always expires on its own timer, with `DOWN_MAX` capping how long an
   engine answer is believed. An unverified flag stuck on true must never
   park an NPC for good; that is the `setUseless` lesson.
+- **A shell has to be turned towards what it is hitting.** It points
+  wherever the engine last left it -- usually the way it was walking --
+  so bandits swung with their back to the player until
+  `BNS.Combat.faceTarget` was called at the start of a swing, at contact,
+  and on a throttle in between (facing is an engine command; per-tick
+  engine commands are what make NPCs skate). Shooters face on each round
+  and while holding aim.
+- **Human skin is not just the skin index.** `HumanVisual` carries a
+  `zombieRotStage` -- the decay variant the texture creator composites
+  over the body, rolled at spawn by `pickRandomZombieRotStage` -- and
+  setting a living skin *index* does not undo it. `BNS.Look` zeroes it and
+  **reads it back**, because a field a build will not let Lua write would
+  otherwise report as working while nothing changed; a body texture name
+  is then copied off a real player (`getSkinTexture`) rather than guessed
+  from a list, and `checkUpdateModelTextures` rebuilds the composite,
+  without which none of it shows.
+- **The moan is a named emitter sound, so stop it by name.** There is no
+  "be quiet" flag on the character, but the shell will give you the name
+  (`getVoiceSoundName` / `getBiteSoundName`) and `BNS.Look.hush` stops
+  exactly those on its own short throttle. Never `stopAll()`: footsteps
+  and BNS's own gunshots go through the same emitter.
 - **Being "busy" is latched, and programs must honour it.**
   `BNS.Combat.isBusy` is true while reloading or blown, and blown latches
   until `RECOVERED` — without the latch a bandit crosses back over the

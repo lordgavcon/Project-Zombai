@@ -68,6 +68,7 @@ local function makeNPC(brain, x, y)
     function z:getSecondaryHandItem() return self.offHand end
     function z:hasPath() return false end
     function z:getOnlineID() return 1 end
+    function z:faceLocationF(fx, fy) self.facing = { fx, fy } end
     return z
 end
 
@@ -568,7 +569,49 @@ assert(BNS.Combat.receiveHit(victimNpc, victimBrain, pusher, nil, 1.0) == "hurt"
 assert(victimBrain.health < floored, "which hurts")
 print("hit rule OK (shove floors, weapons and stomps hurt)")
 
--- 14. Taking a hit spoils a swing in progress -------------------------------------------
+-- 14. They swing at what they are looking at --------------------------------------------
+-- A shell points wherever the engine last left it, usually the way it was
+-- walking, and nothing turned it towards what it was hitting -- so
+-- bandits swung with their back to the player.
+BNS.Combat.faceProbe = nil
+local faceBrain = newBrain(axe)
+local faceNpc, faceFoe = makeNPC(faceBrain, 10, 10), makePlayer(11, 10)
+BNS.Combat.attack(faceNpc, faceBrain, faceFoe)
+assert(faceNpc.facing, "starting a swing squares them up")
+assert(faceNpc.facing[1] == faceFoe.x and faceNpc.facing[2] == faceFoe.y,
+    "at the target, not somewhere else")
+
+-- Circle them mid-swing and the blow still lands facing you.
+faceNpc.facing = nil
+faceFoe.x, faceFoe.y = 10, 11
+run(faceNpc, faceBrain, faceFoe, faceBrain.swingTimer + 1)
+assert(faceNpc.facing, "they keep turning through the windup and at contact")
+assert(faceNpc.facing[1] == 10 and faceNpc.facing[2] == 11,
+    "towards where the target moved to")
+
+-- Facing is an engine command, so it is rationed like the others rather
+-- than re-asserted every tick.
+local faceCalls = 0
+faceNpc.faceLocationF = function(self, fx, fy) faceCalls = faceCalls + 1 end
+faceBrain.swingPhase, faceBrain.swingTimer = nil, nil
+run(faceNpc, faceBrain, faceFoe, 120)
+assert(faceCalls > 0, "they do turn")
+assert(faceCalls < 120 / 2, "but not on every tick, got " .. faceCalls .. " in 120")
+print("facing the target OK (" .. faceCalls .. " turns in 120 ticks)")
+
+-- A build with no usable call is written off once, not retried per tick.
+BNS.Combat.faceProbe = nil
+local blindTurns = 0
+local noFace = makeNPC(newBrain(axe), 0, 0)
+noFace.faceLocationF = function() blindTurns = blindTurns + 1; error("no such method") end
+local nfBrain = noFace:getModData().BNS
+run(noFace, nfBrain, makePlayer(1, 0), 200)
+assert(blindTurns == 1, "a throwing face call is tried once, got " .. blindTurns)
+assert(BNS.Combat.faceProbe == false, "and locked out for the session")
+BNS.Combat.faceProbe = nil
+print("face-call lockout OK")
+
+-- 15. Taking a hit spoils a swing in progress -------------------------------------------
 local hurtBrain = newBrain(axe)
 local hurtNpc, foe = makeNPC(hurtBrain, 0, 0), makePlayer(1, 0)
 BNS.Combat.attack(hurtNpc, hurtBrain, foe)

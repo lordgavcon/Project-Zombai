@@ -30,7 +30,9 @@
   melee backup and come for you. Accuracy is earned by holding still —
   a bandit who has been walking shoots badly — and they won't shoot
   through a wall. Let one walk into your face and it gives ground rather
-  than surrendering its range advantage. Shove one and they go down
+  than surrendering its range advantage. They turn to face what they are
+  swinging at, and they neither look nor sound like the dead — living skin
+  rather than a corpse's, and no zombie moaning. Shove one and they go down
   without taking a scratch — a push is not an attack — and while they are
   on the floor they stop fighting entirely; health only moves when you
   swing at them or stomp on them down there. Two-handed weapons are carried
