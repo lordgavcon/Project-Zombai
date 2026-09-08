@@ -129,16 +129,11 @@ function BNS.Spawner.materialise(rec)
     -- Vehicle owners get their ride placed back beside them.
     if BNS.Vehicles then BNS.Vehicles.onMaterialise(zombie, brain, rec) end
 
-    -- Show the weapon in hand.
-    if brain.weapon and brain.weapon.item then
-        local w = instanceItem(BNS.Loadouts.item(brain.weapon.item))
-        if w then
-            zombie:setPrimaryHandItem(w)
-            if brain.weapon.gun and w.setTwoHandWeapon then
-                zombie:setSecondaryHandItem(w)
-            end
-        end
-    end
+    -- Show the weapon in hand -- in both hands when it takes both. The
+    -- old code only ever filled the off hand for guns, and decided even
+    -- that by testing for a *setter* on the item, so every rifle, axe,
+    -- bat and spear was carried and swung one-handed.
+    BNS.Anim.equip(zombie, brain)
 
     rec.live = true
     zombie:getModData().BNS_recId = rec.id

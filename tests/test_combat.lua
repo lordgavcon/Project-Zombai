@@ -64,6 +64,8 @@ local function makeNPC(brain, x, y)
     function z:pathToLocationF(px, py) self.pathedTo = { px, py } end
     function z:setPrimaryHandItem(it) self.hand = it end
     function z:getPrimaryHandItem() return self.hand end
+    function z:setSecondaryHandItem(it) self.offHand = it end
+    function z:getSecondaryHandItem() return self.offHand end
     function z:hasPath() return false end
     function z:getOnlineID() return 1 end
     return z
@@ -99,13 +101,18 @@ local function newBrain(weapon, tier)
     }
 end
 
--- Run the fight for n engine ticks, the way BNS_Brain does.
+-- Run the fight for n engine ticks, the way BNS_Brain does: the animation
+-- pulse and the combat timers are both advanced every tick, because a
+-- clip that never expires in a test would hide exactly the bug this
+-- suite is here to catch.
+local function step(npc, brain, target, attack)
+    BNS.Anim.tick(npc, brain)
+    BNS.Combat.tick(npc, brain)
+    ;(attack or BNS.Combat.attack)(npc, brain, target)
+end
+
 local function run(npc, brain, target, ticks, attack)
-    attack = attack or BNS.Combat.attack
-    for _ = 1, ticks do
-        BNS.Combat.tick(npc, brain)
-        attack(npc, brain, target)
-    end
+    for _ = 1, ticks do step(npc, brain, target, attack) end
 end
 
 -- 1. A swing is a windup you can step out of --------------------------------------------
@@ -134,8 +141,7 @@ local hitBrain = newBrain(axe)
 local hitNpc, victim = makeNPC(hitBrain, 0, 0), makePlayer(1, 0)
 local landed = false
 for _ = 1, 600 do
-    BNS.Combat.tick(hitNpc, hitBrain)
-    BNS.Combat.attack(hitNpc, hitBrain, victim)
+    step(hitNpc, hitBrain, victim)
     if #victim.hits > 0 and hitBrain.swingPhase == "recover" and not hitBrain.whiffed then
         landed = true
         break
@@ -207,16 +213,14 @@ assert(mag > 1 and spares >= 1, "a pistol carries a magazine and spares")
 local shots = 0
 while ammo.left > 0 and shots < 20000 do
     local before = ammo.left
-    BNS.Combat.tick(gunner, gb)
-    BNS.Combat.attack(gunner, gb, target)
+    step(gunner, gb, target)
     if ammo.left < before then shots = shots + 1 end
     if shots > mag then break end
 end
 assert(shots == mag, "the whole magazine is fired, got " .. shots)
 
 -- The next attack starts a reload rather than another shot.
-BNS.Combat.tick(gunner, gb)
-BNS.Combat.attack(gunner, gb, target)
+step(gunner, gb, target)
 assert(gb.reloadTimer and gb.reloadTimer > 0, "an empty gun reloads")
 -- The weapon comes down to work the action. The variable itself may
 -- still be showing the last shot for a beat -- a pulse plays out before
@@ -243,8 +247,11 @@ assert(BNS.dist(gunner.pathedTo[1], gunner.pathedTo[2], closeTarget.x, closeTarg
 gb.reloadTimer = nil
 
 -- Burn every spare: they draw the melee backup and come for you.
+-- (Planted, not still running from the reload above -- combat refuses to
+-- act mid-sprint, which is the program's job to resolve.)
 ammo.spares = 0
 ammo.left = 0
+gb.animMode = "idle"
 BNS.Combat.attack(gunner, gb, target)
 assert(gb.weapon.gun == false, "out of ammo entirely, the gun goes away")
 assert(gb.weapon.item == "Base.Machete", "and the rolled backup comes out")
@@ -260,6 +267,7 @@ local sniper, mark = makeNPC(ab, 0, 0), makePlayer(8, 0)
 assert(BNS.Combat.aimFactor(ab) == BNS.Combat.AIM_FLOOR,
     "a bandit who just moved shoots at the floor accuracy")
 for _ = 1, BNS.Combat.AIM_FULL do
+    BNS.Anim.tick(sniper, ab)
     BNS.Combat.tick(sniper, ab)
     BNS.Combat.shoot(sniper, ab, mark)
 end
@@ -321,10 +329,13 @@ local function beatsAt(speed)
 end
 local fullWind, fullRecover = beatsAt(1.0)
 local halfWind, halfRecover = beatsAt(0.5)
-assert(halfWind == fullWind * 2,
-    "half speed doubles the windup: " .. halfWind .. " vs " .. fullWind)
-assert(halfRecover == fullRecover * 2,
-    "and the recovery: " .. halfRecover .. " vs " .. fullRecover)
+-- Doubled to within the tick the interval is floored to.
+local function doubled(half, full, what)
+    assert(math.abs(half - full * 2) <= 1,
+        "half speed doubles the " .. what .. ": " .. half .. " vs " .. full)
+end
+doubled(halfWind, fullWind, "windup")
+doubled(halfRecover, fullRecover, "recovery")
 
 -- And it really is visible on a live swing, not just in the arithmetic.
 SandboxVars.BNS.NPCAttackSpeed = 0.5
@@ -340,14 +351,12 @@ local function shotGapAt(speed)
     local b = newBrain(pistol)
     local n, t = makeNPC(b, 0, 0), makePlayer(5, 0)
     BNS.Combat.ensureAmmo(b)
-    BNS.Combat.tick(n, b)
-    BNS.Combat.attack(n, b, t) -- first round goes immediately
+    step(n, b, t) -- first round goes immediately
     return b.shotTimer
 end
 local fullGap = shotGapAt(1.0)
 local halfGap = shotGapAt(0.5)
-assert(halfGap == fullGap * 2,
-    "half speed doubles the gap between rounds: " .. halfGap .. " vs " .. fullGap)
+doubled(halfGap, fullGap, "gap between rounds")
 SandboxVars.BNS.NPCAttackSpeed = nil
 
 -- Accuracy, damage and the aim ramp are deliberately untouched by it.
@@ -361,7 +370,98 @@ assert(BNS.Combat.aimFactor(slowBrain) == fastFactor,
 SandboxVars.BNS.NPCAttackSpeed = nil
 print("attack speed knob OK (x2 intervals at 0.5)")
 
--- 10. Taking a hit spoils a swing in progress -------------------------------------------
+-- 10. The swing clip gets the recovery beat, and always lets go of it ------------------
+-- Two failures, opposite ends of the same number. Too short and the
+-- animation is cut off mid-swing, which is what it looked like in game.
+-- Too long and BNSAnim never leaves "swing" between swings: the
+-- condition never changes, the node has no edge to re-trigger on, and
+-- the *next* swing plays nothing at all.
+SandboxVars.BNS.NPCAttackSpeed = nil -- shipped default (0.5)
+local clipBrain = newBrain(axe)
+local clipNpc, clipTarget = makeNPC(clipBrain, 0, 0), makePlayer(1, 0)
+BNS.Combat.attack(clipNpc, clipBrain, clipTarget)
+run(clipNpc, clipBrain, clipTarget, clipBrain.swingTimer + 1) -- to contact
+assert(clipNpc.vars.BNSAnim == "swing", "contact plays the swing clip")
+local hold, recovery = clipBrain.animPulse, clipBrain.swingTimer
+assert(hold >= BNS.Combat.SWING_HOLD_MIN,
+    "held long enough for the clip to finish, got " .. hold)
+assert(hold < recovery,
+    "and let go before the next swing (" .. hold .. " held vs " .. recovery .. " beat)")
+
+-- Watch a whole second swing arrive and confirm the variable actually
+-- left "swing" in between, which is the part that re-triggers the node.
+local sawStance = false
+for _ = 1, recovery + 400 do
+    step(clipNpc, clipBrain, clipTarget)
+    if clipNpc.vars.BNSAnim ~= "swing" then sawStance = true end
+    if sawStance and clipNpc.vars.BNSAnim == "swing" then break end
+end
+assert(sawStance, "the shell returns to its stance between swings")
+assert(clipNpc.vars.BNSAnim == "swing", "and the next swing re-triggers the clip")
+print("swing clip hold OK (" .. hold .. " of a " .. recovery .. " tick beat)")
+
+-- Rounds in a burst each get their own trigger too.
+local burstBrain = newBrain({ item = "Base.AssaultRifle", dmg = 0.4, range = 14,
+                              gun = true, sound = "M16Shot", hit = 50 }, BNS.Tier.MILITIA)
+local burstNpc, burstTarget = makeNPC(burstBrain, 0, 0), makePlayer(6, 0)
+BNS.Combat.ensureAmmo(burstBrain)
+run(burstNpc, burstBrain, burstTarget, 1)
+assert(burstBrain.animPulse < burstBrain.shotTimer + 1,
+    "a shot clip does not run past the next round")
+print("burst clip hold OK")
+
+-- 11. Two-handed weapons are carried in two hands ---------------------------------------
+-- The old spawn code filled the off hand only for guns, and decided even
+-- that by testing whether a *setter* existed on the item -- so rifles,
+-- axes, bats and spears were all carried and swung one-handed.
+local function equipped(item, gun)
+    local b = newBrain({ item = item, dmg = 0.2, range = 1.3, gun = gun or false })
+    local n = makeNPC(b, 0, 0)
+    BNS.Anim.equip(n, b)
+    return n
+end
+BNS.Anim.twoHandProbe = false -- no isTwoHandWeapon on this fake build: use the class
+for _, two in ipairs({ "Base.BaseballBat", "Base.Axe", "Base.Sledgehammer",
+                       "Base.GardenFork" }) do
+    local n = equipped(two)
+    assert(n.hand, two .. " is in the primary hand")
+    assert(n.offHand == n.hand, two .. " is held in both hands")
+end
+local rifle = equipped("Base.AssaultRifle", true)
+assert(rifle.offHand == rifle.hand, "long guns are shouldered with both hands")
+for _, one in ipairs({ "Base.KitchenKnife", "Base.RollingPin" }) do
+    local n = equipped(one)
+    assert(n.hand, one .. " is in the primary hand")
+    assert(n.offHand == nil, one .. " leaves the off hand free")
+end
+local pistolNpc = equipped("Base.Pistol", true)
+assert(pistolNpc.offHand == nil, "a pistol is a one-handed weapon")
+
+-- Swapping releases the hand the old weapon was using.
+local swapBrain = newBrain({ item = "Base.AssaultRifle", dmg = 0.4, range = 14,
+                             gun = true, sound = "M16Shot", hit = 50 })
+local swapNpc = makeNPC(swapBrain, 0, 0)
+BNS.Anim.equip(swapNpc, swapBrain)
+assert(swapNpc.offHand ~= nil, "the rifle takes both hands")
+swapBrain.backup = { item = "Base.KitchenKnife", dmg = 0.12, range = 1.1, gun = false }
+BNS.Combat.drawBackup(swapNpc, swapBrain)
+assert(swapNpc.hand.id == "Base.KitchenKnife", "the knife is drawn")
+assert(swapNpc.offHand == nil, "and the hand that held the rifle lets go")
+
+-- Where the build does answer for itself, the item wins over the class.
+BNS.Anim.twoHandProbe = nil
+local scripted = newBrain({ item = "Base.RollingPin", dmg = 0.08, range = 1.2 })
+local scriptedNpc = makeNPC(scripted, 0, 0)
+local realInstance = instanceItem
+instanceItem = function(id) return { id = id, isTwoHandWeapon = function() return true end } end
+BNS.Anim.equip(scriptedNpc, scripted)
+instanceItem = realInstance
+assert(scriptedNpc.offHand == scriptedNpc.hand,
+    "an item that says it is two-handed is held that way whatever the class says")
+BNS.Anim.twoHandProbe = nil
+print("two-handed grip OK")
+
+-- 12. Taking a hit spoils a swing in progress -------------------------------------------
 local hurtBrain = newBrain(axe)
 local hurtNpc, foe = makeNPC(hurtBrain, 0, 0), makePlayer(1, 0)
 BNS.Combat.attack(hurtNpc, hurtBrain, foe)

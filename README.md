@@ -30,7 +30,10 @@
   melee backup and come for you. Accuracy is earned by holding still —
   a bandit who has been walking shoots badly — and they won't shoot
   through a wall. Let one walk into your face and it gives ground rather
-  than surrendering its range advantage. The whole attack pace is one
+  than surrendering its range advantage. Two-handed weapons are carried
+  and swung in two hands, and each swing clip is held for the whole
+  recovery beat, so the animation plays out rather than being cut off part
+  way through. The whole attack pace is one
   sandbox slider (**NPC attack speed**, default 0.5 — half speed), so if
   you want fights faster or slower than shipped, that is the only number
   to move; it changes how often they attack, never how hard or how

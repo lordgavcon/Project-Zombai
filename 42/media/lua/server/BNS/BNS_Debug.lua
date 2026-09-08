@@ -289,6 +289,16 @@ function BNS.Debug.animProbe(player, args)
         readShell(shell, "getCurrentStateName") or "[no getCurrentStateName]",
         readShell(shell, "getAnimationStateName") or "[no getAnimationStateName]",
         readShell(shell, "getActionStateName") or "-"))
+    local function handOf(getter)
+        if not shell[getter] then return "-" end
+        local ok, it = pcall(function() return shell[getter](shell) end)
+        if not ok then return "[err]" end
+        if not it then return "empty" end
+        local okName, name = pcall(function() return it:getFullType() end)
+        return okName and tostring(name) or "held"
+    end
+    note(player, string.format("  hands: main=%s off=%s",
+        handOf("getPrimaryHandItem"), handOf("getSecondaryHandItem")))
     note(player, string.format("  vars: BNSNPC=%s BNSAnim=%s Weapon=%s (brain mode %s)",
         tostring(shell.getVariable and shell:getVariable("BNSNPC")),
         tostring(shell.getVariable and shell:getVariable("BNSAnim")),

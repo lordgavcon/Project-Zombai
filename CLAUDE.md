@@ -182,6 +182,24 @@ Two invariants worth keeping in mind when touching the debug code:
   reload finish while its owner is running away, and it is why no caller
   may decrement one itself. `brain.attackTimer` is *not* a combat timer
   any more — `BNS_Raids` still uses it for sabotage.
+- **A one-shot clip is held for a beat, and the beat has two ends.**
+  `BNS.Anim.pulse` takes the hold length from its caller; combat works it
+  out with `BNS.Combat.clipHold`. Too short and the clip is visibly cut
+  off part way through the swing. Too long and `BNSAnim` never leaves
+  `swing` between swings — the condition never changes, the AnimNode has
+  no edge to re-trigger on, and the *next* swing plays nothing at all. The
+  hold is therefore always shorter than the beat that produced it
+  (`HOLD_GAP` puts the shell back in its stance in between), and `RECOVER`
+  is sized so there is room for the clip in the first place. The same
+  applies to shots inside a burst.
+- **Both hands, or one, is the weapon class's call.** `BNS.Anim.equip` is
+  the only way a weapon reaches a shell's hands: it asks the item
+  (`isTwoHandWeapon`, probed once) and falls back to
+  `BNS.Anim.TwoHanded` over the animation class, then fills *or clears*
+  the off hand. Never call `setPrimaryHandItem` directly — the spawner
+  used to, filling the off hand only for guns and deciding even that by
+  testing for a setter on the item, so every axe, bat, spear and rifle was
+  carried and swung one-handed.
 - **Being "busy" is latched, and programs must honour it.**
   `BNS.Combat.isBusy` is true while reloading or blown, and blown latches
   until `RECOVERED` — without the latch a bandit crosses back over the

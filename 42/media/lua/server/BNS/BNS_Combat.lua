@@ -38,8 +38,31 @@ BNS.Combat = {}
 
 -- Melee cycle in engine ticks, before the weapon's own weight is applied.
 BNS.Combat.WINDUP = 20       -- weapon raised; the player can still step out
-BNS.Combat.RECOVER = 28      -- after contact, before another swing can start
+BNS.Combat.RECOVER = 45      -- after contact, before another swing can start
 BNS.Combat.WHIFF_PENALTY = 1.7 -- a missed swing leaves them open for longer
+
+-- How long a one-shot clip is held on the shell after it is triggered.
+--
+-- The recovery beat has to be long enough to contain the swing clip, or
+-- the animation is visibly cut off part way through -- that is what
+-- RECOVER being generous is for, not just pacing. The hold itself is then
+-- clamped at both ends: long enough for the clip to play out, and always
+-- shorter than the beat, because if BNSAnim never leaves "swing" the
+-- condition never changes, the AnimNode has no edge to re-trigger on, and
+-- the next swing plays nothing at all.
+BNS.Combat.SWING_HOLD_MIN = 60  -- 1s; past the length of the shortest attack clip
+BNS.Combat.SWING_HOLD_MAX = 110 -- ~1.8s; past the longest, so no point holding on
+BNS.Combat.SHOT_HOLD_MIN = 25
+BNS.Combat.SHOT_HOLD_MAX = 45
+BNS.Combat.HOLD_GAP = 15        -- ticks the shell is back in its stance between clips
+
+function BNS.Combat.clipHold(beat, minTicks, maxTicks)
+    local room = beat - BNS.Combat.HOLD_GAP
+    -- Correctness first: with no room for the minimum, take what there is
+    -- rather than swallowing the next clip's trigger.
+    if room < minTicks then return math.max(room, 6) end
+    return math.min(maxTicks, room)
+end
 
 -- How much slower each weapon class is through the whole cycle. Taken
 -- from the same classes the animation branches on, so what you see and
@@ -168,18 +191,12 @@ function BNS.Combat.drawBackup(zombie, brain)
         -- No backup rolled (an old record): fists, near enough.
         backup = { item = nil, dmg = 0.06, range = 1.1, gun = false }
     end
-    brain.weapon = backup
     brain.ammo = nil
     brain.reloadTimer = nil
     brain.burstLeft = nil
-    if backup.item and zombie.setPrimaryHandItem then
-        local id = BNS.Loadouts.item(backup.item)
-        if id then
-            local it = instanceItem(id)
-            if it then pcall(function() zombie:setPrimaryHandItem(it) end) end
-        end
-    end
-    BNS.Anim.setWeapon(zombie, brain)
+    -- Same path the spawn uses, so the off hand is filled or emptied to
+    -- match what they just drew.
+    BNS.Anim.equip(zombie, brain, backup)
     BNS.Say(zombie, brain, getText("UI_BNS_OutOfAmmo"))
 end
 
@@ -277,7 +294,6 @@ local function meleeCycle(zombie, brain, tx, ty, range, onHit, baseChance)
         if (brain.swingTimer or 0) > 0 then return end
         -- Contact. Re-measure: a target that moved out of reach during
         -- the windup is a whiff, which is the player's way out of a swing.
-        BNS.Anim.pulse(zombie, brain, "swing")
         zombie:playSound("BaseballBatHit")
         brain.stamina = math.max((brain.stamina or 1.0) - BNS.Combat.SWING_COST, 0)
 
@@ -295,6 +311,11 @@ local function meleeCycle(zombie, brain, tx, ty, range, onHit, baseChance)
             brain.swingTimer = math.floor(brain.swingTimer * BNS.Combat.WHIFF_PENALTY)
         end
         brain.whiffed = not landed
+        -- The clip gets the recovery beat to play out in, less the gap
+        -- that puts them back in their stance before the next swing.
+        BNS.Anim.pulse(zombie, brain, "swing",
+            BNS.Combat.clipHold(brain.swingTimer,
+                BNS.Combat.SWING_HOLD_MIN, BNS.Combat.SWING_HOLD_MAX))
         return
     end
 
@@ -350,7 +371,6 @@ end
 local function fireRound(zombie, brain, tx, ty, onHit, hitChance)
     local ammo = BNS.Combat.ensureAmmo(brain)
     ammo.left = ammo.left - 1
-    BNS.Anim.pulse(zombie, brain, "shoot")
     zombie:playSound(BNS.Combat.gunSound(zombie, brain))
     addSound(zombie, zombie:getX(), zombie:getY(), zombie:getZ(), 70, 70)
     if ZombRand(100) < hitChance then onHit() end
@@ -365,6 +385,11 @@ local function fireRound(zombie, brain, tx, ty, onHit, hitChance)
         brain.shotTimer = BNS.Combat.interval(
             ZombRand(math.floor(ammo.rof * 2), math.floor(ammo.rof * 5)))
     end
+    -- Held inside the gap to the next round, so every round in a burst
+    -- gets its own trigger instead of the first one masking the rest.
+    BNS.Anim.pulse(zombie, brain, "shoot",
+        BNS.Combat.clipHold(brain.shotTimer,
+            BNS.Combat.SHOT_HOLD_MIN, BNS.Combat.SHOT_HOLD_MAX))
 end
 
 -- Simulated gunshot with distance falloff. Misses still make noise and
