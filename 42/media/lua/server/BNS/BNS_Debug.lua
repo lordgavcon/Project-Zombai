@@ -129,6 +129,7 @@ function BNS.Debug.snapshot(player)
             stamina = brain and brain.stamina or nil,
             swing = brain and brain.swingPhase or nil,
             down = brain and BNS.Combat.isDown(brain) or false,
+            lunges = brain and brain.lunges or 0,
             grabbed = brain and brain.grabbedTimer ~= nil or false,
             door = brain and brain.door ~= nil or false,
             paths = brain and brain.pathCount or 0,
@@ -314,6 +315,12 @@ function BNS.Debug.animProbe(player, args)
         tostring(shell.getVariable and shell:getVariable("BNSAnim")),
         tostring(shell.getVariable and shell:getVariable("Weapon")),
         tostring(brain.animMode)))
+    -- Times the shell was caught in a zombie action state (a lunge above
+    -- all) with a player close. Should stay at zero: anything else means
+    -- the target suppression is losing the race and the player is seeing
+    -- zombie behaviour.
+    note(player, string.format("  zombie states entered: %d (state now: %s)",
+        brain.lunges or 0, BNS.Combat.stateName(shell) or "?"))
     note(player, string.format("  path: hasPath=%s moving=%s target=%s,%s orders=%d lost=%d",
         readShell(shell, "hasPath") or "-",
         readShell(shell, "isMoving") or "-",
@@ -608,6 +615,25 @@ BNS.Debug.Scenarios = {
                 end
             end
             for _, line in ipairs(BNS.Look.report()) do note(player, "  " .. line) end
+        end,
+    },
+    muzzle = {
+        label = "Walk into a gunner's muzzle",
+        watch = "get right up against them: they shove you off and bring "
+            .. "the gun back up rather than lunging at you like a zombie. "
+            .. "PROBE should show zero zombie states entered",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "police", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if not shell then return end
+            local brain = BNS.brain(shell)
+            brain.weapon = { item = "Base.Pistol", dmg = 0.30, range = 10,
+                sound = "9mmShot", hit = 45, gun = true }
+            brain.backup = BNS.Spawner.rollMelee(brain.tier, brain.archetype)
+            brain.ammo = BNS.Combat.gunProfile(brain)
+            brain.warned, brain.warnTimer = true, nil
+            brain.program = BNS.Program.ATTACK
+            BNS.Anim.equip(shell, brain)
         end,
     },
     shove = {

@@ -94,7 +94,24 @@ local NODES = {
 -- missing one is a mode that silently never plays, which is the failure
 -- worth insuring against. The debug panel's ANIM PROBE prints the shell's
 -- live state name so the real set can be read off a running game.
-local STATES = { "idle", "zombieidle", "pathfind", "walktoward", "walktowards", "attack" }
+--
+-- `lunge`, `staggerback` and `thump` are the states a shell can be thrown
+-- into by the engine rather than by BNS -- a zombie lunging at a player
+-- being the one that got reported -- and an uncovered state means vanilla
+-- *zombie* clips play there. BNS suppresses the target that causes a
+-- lunge (BNS_Brain), but covering the state as well means even a frame of
+-- it looks like a person.
+--
+-- The on-ground family (onground / getup / falldown) is deliberately NOT
+-- here: there is no player clip name for a prone body among the ones
+-- verified against the game's own media/AnimSets/player, and standing a
+-- knocked-down NPC's idle clip up on the floor would look worse than the
+-- vanilla get-up does. Add those states here once the clip names are read
+-- off a real install -- never guessed (CLAUDE.md).
+local STATES = {
+    "idle", "zombieidle", "pathfind", "walktoward", "walktowards",
+    "attack", "lunge", "staggerback", "thump",
+}
 
 local M = { NODES = NODES, STATES = STATES }
 

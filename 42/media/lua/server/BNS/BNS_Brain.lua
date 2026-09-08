@@ -28,11 +28,37 @@ local TICK_DIVIDER = 10 -- run full brain logic every N engine updates
 -- times a second, and setTarget(nil) every frame fights the engine's own
 -- movement bookkeeping. Re-assert a few times a second instead, and only
 -- clear state that is actually set.
+--
+-- Except with a player in reach. A zombie that acquires a target close
+-- enough goes into its lunge, and ten ticks is long enough for that to
+-- start and be seen -- which is what "bandits with guns start zombie
+-- lunging at the player" was. Inside LUNGE_GUARD the target is cleared
+-- every tick, which is the only cadence that beats the engine to it. The
+-- cost is one getTarget() read per tick per NPC while a player is
+-- practically on top of them, and a write only when there is something
+-- to clear.
 local SUPPRESS_EVERY = 10 -- engine ticks
+local LUNGE_GUARD = 8     -- tiles: inside this, suppress every tick
+
+-- States the engine puts a zombie into that an NPC must never be in. A
+-- shell that reaches one has acquired a target behind our back; clearing
+-- it is what ends the state.
+local ZOMBIE_STATES = { "lunge", "thump", "bite", "attack" }
+
+local function inZombieState(zombie)
+    local state = BNS.Combat.stateName(zombie)
+    if not state then return false end
+    for _, needle in ipairs(ZOMBIE_STATES) do
+        if state:find(needle, 1, true) then return true end
+    end
+    return false
+end
 
 local function suppressZombie(zombie, brain)
+    local _, dist = BNS.nearestPlayer(zombie:getX(), zombie:getY())
+    local urgent = dist ~= nil and dist < LUNGE_GUARD
     brain.suppressTick = (brain.suppressTick or ZombRand(SUPPRESS_EVERY)) - 1
-    if brain.suppressTick > 0 then return end
+    if not urgent and brain.suppressTick > 0 then return end
     brain.suppressTick = SUPPRESS_EVERY
     -- setUseless was re-asserted here several times a second on nothing
     -- but a guess about what it does. It is off by default now: see
@@ -45,6 +71,13 @@ local function suppressZombie(zombie, brain)
         zombie:setTarget(nil)
     end
     if zombie.setAttackedBy then zombie:setAttackedBy(nil) end
+    if zombie.setThumpTarget then pcall(function() zombie:setThumpTarget(nil) end) end
+    -- Already in one: count it so the debug probe can say whether any of
+    -- this is working, and put the shell back under our own orders.
+    if urgent and inZombieState(zombie) then
+        brain.lunges = (brain.lunges or 0) + 1
+        BNS.Programs.stopMoving(zombie, brain, brain.animBase or "idle")
+    end
 end
 
 local function updateNPC(zombie, brain)

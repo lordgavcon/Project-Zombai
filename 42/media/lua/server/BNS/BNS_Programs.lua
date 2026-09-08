@@ -390,7 +390,16 @@ BNS.Programs[BNS.Program.ATTACK] = function(zombie, brain, ctx)
     -- once. BNS.Combat refuses to attack while running.
     if w.gun then
         local range = w.range or 10
-        if ctx.dist < range * BNS.Programs.STANDOFF_MIN then
+        if ctx.dist <= BNS.Combat.SHOVE_RANGE then
+            -- Someone in your face is not a shooting problem, it is a
+            -- get-off-me problem. A zombie's answer at this range is a
+            -- lunge; a person's is a shove and then the weapon back up.
+            BNS.Programs.stopMoving(zombie, brain, "aim")
+            if not BNS.Combat.shove(zombie, brain, p) then
+                BNS.Programs.backAway(zombie, brain, p:getX(), p:getY(),
+                    range * BNS.Programs.STANDOFF_KEEP, true)
+            end
+        elseif ctx.dist < range * BNS.Programs.STANDOFF_MIN then
             -- Let a player walk into your muzzle and you lose the gun's
             -- whole advantage: open the range back up instead.
             BNS.Programs.backAway(zombie, brain, p:getX(), p:getY(),

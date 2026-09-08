@@ -253,6 +253,72 @@ function BNS.Combat.faceTarget(zombie, brain, tx, ty, force)
     BNS.Combat.face(zombie, tx, ty)
 end
 
+-- Shoving ---------------------------------------------------------------
+--
+-- What a gun-armed bandit does when someone walks into their muzzle. A
+-- zombie's answer to that range is a lunge; a person's is to push you off
+-- and bring the weapon back up, which is what this is.
+--
+-- The animation is the engine's own shove (setPerformingShoveAnimation),
+-- deliberately, because that is a *player* animation and the whole point
+-- here is that a shell never plays a zombie one. Where the build does not
+-- expose it, BNS falls back to pulsing its own swing clip -- still a
+-- player clip, just not the right one.
+--
+-- It does no damage, on purpose and symmetrically with the rule for being
+-- shoved: pushing is not attacking.
+BNS.Combat.SHOVE_RANGE = 1.8   -- tiles; inside this a gunner pushes rather than shoots
+BNS.Combat.SHOVE_COOLDOWN = 90 -- engine ticks between pushes, before attack speed
+BNS.Combat.shoveProbe = nil    -- nil = untried, true = engine shove, false = fall back
+
+-- Effects on the person being pushed, best-effort and each probed once:
+-- a build that exposes none of them still gets the push animation and the
+-- gunner still opens the range, it just does not stagger.
+BNS.Combat.PushEffects = {
+    { "setStaggerBack", true },
+    { "setBumpStaggered", true },
+    { "setBumpDone", false },
+}
+
+function BNS.Combat.canShove(brain)
+    return (brain.shoveTimer or 0) <= 0
+end
+
+function BNS.Combat.shove(zombie, brain, target)
+    if not BNS.Combat.canShove(brain) then return false end
+    brain.shoveTimer = BNS.Combat.interval(BNS.Combat.SHOVE_COOLDOWN)
+    BNS.Combat.faceTarget(zombie, brain, target:getX(), target:getY(), true)
+
+    -- Push animation: the engine's, if it has one.
+    local played = false
+    if BNS.Combat.shoveProbe ~= false and zombie.setPerformingShoveAnimation then
+        local ok = pcall(function() zombie:setPerformingShoveAnimation(true) end)
+        if ok then
+            BNS.Combat.shoveProbe = true
+            played = true
+        else
+            BNS.Combat.shoveProbe = false
+            BNS.log("no engine shove animation on this build; using the swing clip")
+        end
+    end
+    if not played then
+        BNS.Anim.pulse(zombie, brain, "swing",
+            BNS.Combat.clipHold(brain.shoveTimer,
+                BNS.Combat.SHOT_HOLD_MIN, BNS.Combat.SWING_HOLD_MAX))
+    end
+
+    -- Stagger whoever was pushed. No damage: pushing is not attacking,
+    -- the same way it is not when it is done to them.
+    for _, effect in ipairs(BNS.Combat.PushEffects) do
+        local name, value = effect[1], effect[2]
+        if BNS.Combat.flag(target, name) ~= nil or target[name] then
+            pcall(function() target[name](target, value) end)
+        end
+    end
+    if zombie.setBumpedChr then pcall(function() target:setBumpedChr(zombie) end) end
+    return true
+end
+
 local BODY_PARTS = {
     BodyPartType.Torso_Upper, BodyPartType.Torso_Lower,
     BodyPartType.UpperArm_L, BodyPartType.UpperArm_R,
@@ -414,6 +480,9 @@ function BNS.Combat.tick(zombie, brain)
     end
     if brain.shotTimer and brain.shotTimer > 0 then
         brain.shotTimer = brain.shotTimer - 1
+    end
+    if brain.shoveTimer and brain.shoveTimer > 0 then
+        brain.shoveTimer = brain.shoveTimer - 1
     end
     if brain.reloadTimer then
         brain.reloadTimer = brain.reloadTimer - 1

@@ -179,6 +179,15 @@ assert(sawSwing and sawAim, "swings and aiming are both covered")
 -- attack state, and a swing pulse lands while it is standing or walking.
 -- Every mode therefore has to exist in every state directory shipped, or
 -- that mode silently does nothing for a shell in that state.
+-- The states the engine can throw a shell into on its own -- a lunge
+-- above all -- are the ones where an uncovered state means vanilla
+-- *zombie* clips play. BNS suppresses the target that causes a lunge,
+-- but the node has to be there for the frames before that lands.
+for _, engineState in ipairs({ "lunge", "staggerback", "thump" }) do
+    assert(perState[engineState],
+        "no overlay for '" .. engineState .. "' -- a shell thrown into it "
+            .. "would play the zombie clip")
+end
 for _, state in ipairs(gen.STATES) do
     assert(perState[state], "no overlay nodes shipped for AnimState '" .. state .. "'")
     for mode in pairs(BNS.Anim.Modes) do

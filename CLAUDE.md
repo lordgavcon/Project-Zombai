@@ -73,6 +73,24 @@ See README.md for the feature list and the code-layout map. Key facts:
   probed once and remembered), and a dropped path is re-issued at once.
   Without that the budget is a gag — a shell whose path something else
   cancelled stands still forever while the brain declines to re-order it.
+- **A shell must never be seen in a zombie state.** A zombie that
+  acquires a target close enough goes into its lunge, and the ten-tick
+  suppression cadence was long enough for that to start and be seen. Two
+  defences, and both are needed: inside `LUNGE_GUARD` (8 tiles) BNS_Brain
+  clears the target *every* tick, and the AnimSet overlays cover `lunge`,
+  `staggerback` and `thump` so even a frame of one plays a player clip.
+  `brain.lunges` counts shells caught in a zombie state with a player
+  close and PROBE prints it — it should stay at zero. The on-ground family
+  is deliberately uncovered: there is no verified player clip for a prone
+  body, and standing an idle up on the floor would look worse than the
+  vanilla get-up. Add those states to `tools/gen_animsets.lua` only once
+  the clip names are read off a real install.
+- **A gunner's answer to someone in their face is a shove, not a lunge.**
+  `BNS.Combat.shove` uses the engine's own `setPerformingShoveAnimation`
+  precisely because that is a *player* animation, falling back to the
+  swing clip where the build lacks it. It does no damage, symmetrically
+  with `receiveHit`: pushing is not attacking in either direction. Inside
+  `SHOVE_RANGE` the ATTACK program shoves; on cooldown it gives ground.
 - **Suppression must not park the shell.** `BNS.Suppress` (in
   `BNS_Core.lua`) gates the calls that stop a shell behaving like a
   zombie. Only `clearTarget` is on: it is what stops them lunging at
