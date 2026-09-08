@@ -258,8 +258,14 @@ Non-admin requests are dropped and logged.
   bare-handed.
 - POI ground cues filter their item ids against what the build actually
   ships (`ScriptManager:getItem`), so an unknown id is skipped rather than
-  erroring — but if a whole pool is missing, that cue quietly disappears;
-  `[BNS]` logs which pool came up empty. Those pools are refuse only
+  erroring, and a pool that comes up empty on your build no longer takes
+  its cue with it — another pool from the same zone covers those squares
+  instead, so a held stronghold still looks lived in. (42.20 had none of
+  the four casing ids the mod listed, and the approach quietly lost that
+  share of its litter.) The casing ids are still a candidate list rather
+  than something verifiable offline: **Fortify POI** in the debug panel
+  now prints what each pool resolved to on your build, so whichever one is
+  real can be kept and the rest deleted. Those pools are refuse only
   (spent brass, torn cloth, ash, litter): a stronghold's actual supplies
   go into its containers, never onto the floor. Blood splatter and
   positional camp audio are attempted and degrade silently if 42.20's

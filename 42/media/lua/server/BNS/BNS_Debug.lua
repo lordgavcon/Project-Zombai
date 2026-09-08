@@ -428,6 +428,13 @@ function BNS.Debug.claimPOI(player)
         radius = best.radius, stockedSquares = {} }
     BNS.Bases.createGarrison(state, best)
     note(player, "militia claimed " .. best.name .. " (" .. math.floor(bestD) .. " tiles away)")
+    -- Which ground cues this build can actually place. A pool showing
+    -- "none of N candidates" is a cue being covered by another pool
+    -- rather than appearing; a pool that resolved says which id is real,
+    -- so the candidate list in BNS_Signs can be cut down to it.
+    if BNS.Signs and BNS.Signs.report then
+        for _, line in ipairs(BNS.Signs.report()) do note(player, "  " .. line) end
+    end
 end
 
 -- Jump to any point of interest by name, fortified or not.
