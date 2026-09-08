@@ -414,8 +414,8 @@ end
 -- overlay (program text above heads) shows whether it plays out.
 BNS.Debug.Scenarios = {
     warning = {
-        label = "Warning shout + first-shot miss",
-        watch = "militia shouts, aims ~2.5s, opening shot usually misses",
+        label = "Warning shot + 4s hold",
+        watch = "militia fires one round past you, holds aim 4s, then engages",
         run = function(player)
             BNS.Debug.spawnNPC(player, { archetype = "exmilitary", count = 1 })
         end,

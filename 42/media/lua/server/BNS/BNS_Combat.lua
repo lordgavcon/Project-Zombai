@@ -60,6 +60,41 @@ function BNS.Combat.melee(zombie, brain, player)
     end
 end
 
+-- The sound of the gun they are actually holding, rather than a fixed
+-- string: a shotgun should not crack like a 9mm. Falls back to the
+-- loadout's sound, then to a pistol shot, if the item exposes none.
+function BNS.Combat.gunSound(zombie, brain)
+    local w = brain.weapon or {}
+    if zombie.getPrimaryHandItem then
+        local sound = nil
+        pcall(function()
+            local item = zombie:getPrimaryHandItem()
+            if not item then return end
+            if item.getSwingSound then sound = item:getSwingSound() end
+            if (not sound or sound == "") and item.getSoundName then
+                sound = item:getSoundName()
+            end
+        end)
+        if sound and sound ~= "" then return sound end
+    end
+    return w.sound or "9mmShot"
+end
+
+-- A shot fired to warn the player off: the real gun, aimed their way,
+-- doing no damage. It is the telegraph -- what used to be a shouted
+-- line -- so it still makes gunshot noise and still draws zombies.
+function BNS.Combat.warningShot(zombie, brain, player)
+    if not (brain.weapon and brain.weapon.gun) then return false end
+    if zombie.faceThisObject then
+        pcall(function() zombie:faceThisObject(player) end)
+    end
+    BNS.Anim.pulse(zombie, brain, "shoot")
+    zombie:playSound(BNS.Combat.gunSound(zombie, brain))
+    addSound(zombie, zombie:getX(), zombie:getY(), zombie:getZ(), 70, 70)
+    -- Deliberately no damage roll: the point is that it misses.
+    return true
+end
+
 -- Simulated gunshot with distance falloff. Misses still make noise and
 -- attract zombies via addSound, which keeps firefights dangerous.
 function BNS.Combat.shoot(zombie, brain, player)
@@ -72,24 +107,18 @@ function BNS.Combat.shoot(zombie, brain, player)
     if d > w.range then return end
 
     BNS.Anim.pulse(zombie, brain, "shoot")
-    zombie:playSound(w.sound or "9mmShot")
+    zombie:playSound(BNS.Combat.gunSound(zombie, brain))
     addSound(zombie, zombie:getX(), zombie:getY(), zombie:getZ(), 70, 70)
 
     local hitChance = (w.hit or 40) * (1.0 - 0.5 * (d / w.range))
     if player:isSneaking() then hitChance = hitChance * 0.6 end
-    -- The opening shot of an engagement goes wide far more often, so a
-    -- shouted warning is rarely followed by an instant kill.
-    if brain.firstShot then
-        hitChance = hitChance * 0.5
-        brain.firstShot = nil
-    end
     if ZombRand(100) < hitChance then
         applyDamage(player, w.dmg or 0.3)
     end
 end
 
 function BNS.Combat.attack(zombie, brain, player)
-    -- No damage before the warning shout has run its course.
+    -- No damage until the warning has run its course.
     if not brain.warned then return end
     if not BNS.Combat.canAttack(brain) then return end
     if brain.weapon and brain.weapon.gun then

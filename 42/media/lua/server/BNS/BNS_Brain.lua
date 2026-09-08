@@ -201,8 +201,9 @@ function BNS.Brain.onWeaponHitCharacter(attacker, target, weapon, damage)
         if brain.role ~= BNS.Role.BANDIT then brain.role = BNS.Role.BANDIT end
         brain.program = (brain.tier == BNS.Tier.CIVILIAN and brain.health < 0.4)
             and BNS.Program.FLEE or BNS.Program.ATTACK
+        -- Being shot at is its own warning: they skip the telegraph
+        -- entirely rather than firing one back over your head first.
         if brain.program == BNS.Program.ATTACK and not brain.warned then
-            BNS.Programs.startWarning(target, brain)
             brain.warnTimer = nil
             brain.warned = true
         end

@@ -109,3 +109,26 @@ Two invariants worth keeping in mind when touching the debug code:
   moving-object list" did not prove the character was drawn. When the
   only real observer is a person looking at the game, build the
   observation into the debug panel and ask, rather than inferring.
+- **Loot belongs in containers.** A stronghold's supplies go into real
+  containers (`BNS_Bases.stockContainers` searches the square, then a few
+  tiles around it) and, failing that, into a crate the code places itself
+  — never onto the floor. `AddWorldInventoryItem` at a POI is for the
+  ground *cues* only, and those pools are refuse by contract
+  (`tests/test_signs.lua` asserts no pool offers anything worth picking
+  up). Stocking is capped per POI so a stronghold doesn't become a
+  warehouse.
+- **A claimed POI is a building, not a circle.** `BNS_Bases` adopts the
+  real building at the claim point (`getBuilding()` / `getRoom()`, its
+  `BuildingDef` footprint) and re-centres the base and its garrison on it.
+  "Core" is then `insideBase()` — inside the footprint *and* reporting
+  that same building, because a bounding box includes outdoor corners.
+  Fortifying and stocking are gated on it; the approach ring is measured
+  from the building's centre. Never reintroduce a radius test for what
+  counts as inside a stronghold.
+- **The engagement telegraph is a warning shot, not a shout.** A gun-armed
+  bandit opens with `BNS.Combat.warningShot` — the real held weapon, its
+  own sound via `getSwingSound()`, no damage roll — and `warnTimer` holds
+  damage off for `BNS.Programs.WARN_TICKS` (240 engine ticks = 4s).
+  `warnTimer` counts *engine* ticks, not brain ticks. Melee bandits close
+  silently — same hold, no shot and no line. Being attacked first skips
+  the telegraph entirely.

@@ -39,13 +39,28 @@ end
 
 -- Only these item ids "exist" in this fake build; everything the mod
 -- lists as a candidate but that is missing here must never be placed.
+-- A deliberately partial build: the pools list several plausible ids per
+-- cue and only the ones a build actually has may be placed.
 local KNOWN_ITEMS = {
-    ["Base.Bullets9mm"] = true,
+    ["Base.BulletShell"] = true,
     ["Base.RippedSheets"] = true,
-    ["Base.Bandage"] = true,
-    ["Base.Cigarettes"] = true,
-    ["Base.Plank"] = true,
+    ["Base.EmptyTinCan"] = true,
+    ["Base.BrokenGlass"] = true,
+    ["Base.Charcoal"] = true,
     ["Base.WoodenStick"] = true,
+    -- Supplies that go *into* containers, kept separate from the ground
+    -- cues above: these must never appear on the floor.
+    ["Base.TinnedBeans"] = true,
+    ["Base.CannedChili"] = true,
+    ["Base.CannedCorn"] = true,
+    ["Base.WaterBottle"] = true,
+    ["Base.Bandage"] = true,
+    ["Base.PillsVitamins"] = true,
+    ["Base.Bullets9mm"] = true,
+    ["Base.ShotgunShells"] = true,
+    ["Base.PetrolCan"] = true,
+    ["Base.Nails"] = true,
+    ["Base.Plank"] = true,
 }
 ScriptManager = { instance = { getItem = function(_, fullType)
     if KNOWN_ITEMS[fullType] then return { type = fullType } end
@@ -65,8 +80,21 @@ end
 function getNumActivePlayers() return #players end
 function getSpecificPlayer(i) return players[i + 1] end
 
-local function makeSquare(x, y)
-    local sq = { x = x, y = y, floor = {}, modData = {}, blood = 0, objects = {} }
+-- A building is a footprint plus an id; a square is "inside" it only if
+-- it reports that building, so an L-shaped courtyard square is outdoors
+-- even though it sits inside the bounding box.
+local function makeBuilding(x, y, w, h, id)
+    local def = { getX = function() return x end, getY = function() return y end,
+                  getW = function() return w end, getH = function() return h end,
+                  getID = function() return id end }
+    return { getDef = function() return def end, id = id, x = x, y = y, w = w, h = h }
+end
+
+local function makeSquare(x, y, building)
+    local sq = { x = x, y = y, floor = {}, modData = {}, blood = 0, objects = {},
+                 building = building }
+    function sq:getBuilding() return self.building end
+    function sq:getRoom() return self.building and { getBuilding = function() return self.building end } or nil end
     function sq:getX() return self.x end
     function sq:getY() return self.y end
     function sq:getZ() return 0 end
@@ -251,8 +279,19 @@ require("BNS/BNS_Anim")
 require("BNS/BNS_Spawner")
 require("BNS/BNS_Bases")
 
-local function furnishedSquare(x, y)
-    local sq = makeSquare(x, y)
+-- Refuse on the floor is a deliberate cue; a *supply* on the floor is the
+-- bug. Assert on that distinction rather than on the floor being empty.
+local SUPPLY_IDS = {}
+for _, s in ipairs(BNS.Loadouts.BaseSupplies) do SUPPLY_IDS[s.item] = true end
+SUPPLY_IDS["Base.WaterBottle"] = true
+local function assertNoSuppliesOnFloor(sq, why)
+    for _, ft in ipairs(sq.floor) do
+        assert(not SUPPLY_IDS[ft], why .. " (found " .. ft .. " on the floor)")
+    end
+end
+
+local function furnishedSquare(x, y, building)
+    local sq = makeSquare(x, y, building)
     local items = {}
     local container = {
         getItems = function()
@@ -267,28 +306,172 @@ local function furnishedSquare(x, y)
     return sq
 end
 
-local hq = newBase(0, 0, 10)          -- core <= 10, approach <= 25
+-- The claim point is deliberately off-centre from the building, which is
+-- the situation that put half a stronghold outside the fortified area.
+local hall = makeBuilding(0, 0, 8, 8, "hall")
+local hq = newBase(6, 2, 10)
 state.bases = { ["Test POI"] = hq }
 
-local coreSq = furnishedSquare(3, 0)
+local coreSq = furnishedSquare(3, 3, hall)
 BNS.Bases.onLoadGridsquare(coreSq)
+assert(hq.b, "the claim anchors itself to the building")
+assert(hq.b.x == 0 and hq.b.w == 8, "and records its real footprint")
+assert(hq.x == 4 and hq.y == 4, "the stronghold re-centres on the building, not the claim point")
 assert(#coreSq.contents > 0, "core containers are stocked")
 assert(barricades > 0, "core windows are barricaded")
 
+-- Every square of the building counts as core, including the far corner
+-- the old circle around the claim point never reached.
 barricades = 0
-local approachSq = furnishedSquare(20, 0)
+local farCorner = furnishedSquare(0, 7, hall)
+BNS.Bases.onLoadGridsquare(farCorner)
+assert(barricades > 0, "the whole building is reinforced, corners included")
+assertNoSuppliesOnFloor(farCorner, "no supplies on the far corner floor")
+
+-- A square inside the bounding box but not in the building is outdoors.
+barricades = 0
+local courtyard = furnishedSquare(5, 5, nil)
+BNS.Bases.onLoadGridsquare(courtyard)
+assert(barricades == 0, "an outdoor square inside the footprint is not fortified")
+assert(#courtyard.contents == 0, "and gets no supplies")
+
+-- A neighbouring building is not the stronghold.
+barricades = 0
+local neighbour = makeBuilding(30, 0, 6, 6, "shed")
+local nextDoor = furnishedSquare(31, 1, neighbour)
+BNS.Bases.onLoadGridsquare(nextDoor)
+assert(barricades == 0 and #nextDoor.contents == 0, "the building next door is left alone")
+
+barricades = 0
+local approachSq = furnishedSquare(20, 4, nil)
 BNS.Bases.onLoadGridsquare(approachSq)
 assert(#approachSq.contents == 0, "approach containers must NOT be stocked")
 assert(barricades == 0, "approach windows must NOT be barricaded")
 
-local outsideSq = furnishedSquare(300, 0)
+local outsideSq = furnishedSquare(300, 0, nil)
 BNS.Bases.onLoadGridsquare(outsideSq)
 assert(#outsideSq.contents == 0 and #outsideSq.floor == 0, "squares outside both rings are untouched")
 
 -- once per square, however often it streams in
-local repeatSq = furnishedSquare(3, 0)
+local repeatSq = furnishedSquare(3, 3, hall)
 BNS.Bases.onLoadGridsquare(repeatSq)
 assert(#repeatSq.contents == 0, "an already-processed square is skipped")
-print("core/approach zoning OK (fortify core only, decorate both)")
+print("building-anchored zoning OK (whole building fortified, nothing outside)")
+
+-- Ground cues are refuse, never loot ---------------------------------------------
+-- A stronghold's supplies belong in its containers. Anything worth
+-- picking up on the floor reads as scattered loot, which is the thing
+-- these cues must not become.
+local VALUABLES = {
+    "Bullets", "Shells", "Bandage", "Cigarettes$", "Plank", "Money",
+    "Food", "Pills", "Antibiotics", "Whiskey", "Water",
+}
+for _, poolName in ipairs({ "casings", "rags", "refuse", "camp", "broken" }) do
+    BNS.Signs.clearPoolCache()
+    for _, id in ipairs(BNS.Signs.poolIds(poolName)) do
+        for _, bad in ipairs(VALUABLES) do
+            assert(not id:find(bad),
+                "decoration pool '" .. poolName .. "' offers " .. id
+                    .. ", which is loot, not refuse")
+        end
+    end
+end
+print("ground cues are refuse only OK")
+
+-- Supplies land in containers, not on the floor -----------------------------------
+-- A stronghold's stores used to be stocked only when a container happened
+-- to be on the very square that streamed in; anything else a player saw
+-- lying about read as loot on the floor.
+BNS.Signs.clearPoolCache()
+
+local world = {}
+local function makeContainerSquare(x, y, building)
+    local sq = makeSquare(x, y, building)
+    local items = {}
+    sq.contents = items
+    table.insert(sq.objects, { getContainer = function()
+        return { AddItem = function(_, ft) table.insert(items, ft) end,
+                 getItems = function()
+                     return { size = function() return #items end,
+                              get = function(_, i) return items[i + 1] end } end }
+    end })
+    world[x .. "," .. y] = sq
+    return sq
+end
+local placedObjects = {}
+local function makeBareSquare(x, y, building)
+    local sq = makeSquare(x, y, building)
+    sq.contents = {}
+    function sq:AddSpecialObject(o) table.insert(self.objects, o); table.insert(placedObjects, o) end
+    function sq:RemoveTileObject(o)
+        for i = #self.objects, 1, -1 do if self.objects[i] == o then table.remove(self.objects, i) end end
+    end
+    function sq:transmitRemoveItemFromSquare() end
+    world[x .. "," .. y] = sq
+    return sq
+end
+function getSquare(x, y, z) return world[x .. "," .. y] end
+
+-- 1. A container two tiles away is used instead of the floor.
+local store = makeBuilding(1000, 0, 8, 8, "store")
+local hq2 = newBase(1000, 0, 10)
+state.bases["Test POI"] = hq2
+local shelf = makeContainerSquare(1002, 0, store)
+local bare = makeBareSquare(1000, 0, store)
+BNS.Bases.onLoadGridsquare(bare)
+assert(#shelf.contents > 0, "supplies go into a container a couple of tiles away")
+assertNoSuppliesOnFloor(bare, "supplies never land on the floor")
+
+-- 2. With nothing to store things in, the garrison puts a crate down.
+IsoSpriteManager = { instance = { getSprite = function(_, n)
+    return n == "crated_01_08" and { name = n } or nil
+end } }
+local crateItems = {}
+IsoObject = { new = function(square, sprite, name)
+    return { sprite = sprite, getContainer = function()
+        return { AddItem = function(_, ft) table.insert(crateItems, ft) end,
+                 getItems = function()
+                     return { size = function() return #crateItems end,
+                              get = function(_, i) return crateItems[i + 1] end } end }
+    end }
+end }
+local shack = makeBuilding(2000, 0, 6, 6, "shack")
+local hq3 = newBase(2000, 0, 10)
+state.bases["Test POI"] = hq3
+local empty = makeBareSquare(2000, 0, shack)
+BNS.Bases.onLoadGridsquare(empty)
+assert(#crateItems > 0, "a crate is placed and stocked when there is nowhere else")
+assertNoSuppliesOnFloor(empty, "still nothing of value on the floor")
+assert(BNS.Bases.crateSprite == "crated_01_08", "and it remembers the sprite that worked")
+assert(hq3.crates == 1, "the crate is counted against the per-POI cap")
+
+-- 3. An object that is not actually a container is taken back out again.
+BNS.Bases.crateSprite = nil
+IsoObject = { new = function() return { getContainer = function() return nil end } end }
+local hut = makeBuilding(3000, 0, 6, 6, "hut")
+local hq4 = newBase(3000, 0, 10)
+state.bases["Test POI"] = hq4
+placedObjects = {}
+local stubborn = makeBareSquare(3000, 0, hut)
+BNS.Bases.onLoadGridsquare(stubborn)
+assert(#stubborn.objects == 0, "furniture that holds nothing is not left lying around the POI")
+assertNoSuppliesOnFloor(stubborn, "supplies are withheld rather than dropped")
+assert((hq4.crates or 0) == 0, "a failed placement does not count as a crate")
+
+-- 4. A POI does not become a warehouse.
+BNS.Bases.crateSprite = nil
+IsoSpriteManager = nil
+local depot = makeBuilding(4000, 0, 70, 8, "depot")
+local hq5 = newBase(4000, 0, 40)
+state.bases["Test POI"] = hq5
+local total = 0
+for i = 1, 60 do
+    local sq = makeContainerSquare(4000 + i, 0, depot)
+    BNS.Bases.onLoadGridsquare(sq)
+    total = total + #sq.contents
+end
+assert(hq5.supplyLines <= 24, "stocking is capped per POI, got " .. tostring(hq5.supplyLines))
+assert(total > 0, "but the stronghold is stocked at all")
+print("POI supplies go into containers OK (" .. hq5.supplyLines .. " lines capped)")
 
 print("ALL TESTS PASSED")
