@@ -145,6 +145,15 @@ for _, path in ipairs(files) do
     local state = path:match("([^/]+)/[^/]+$")
     assert(not xml:find("<m_Value>"),
         name .. " uses <m_Value>; STRING conditions are read from <m_StringValue>")
+    -- XML forbids "--" inside a comment, and the game's parser rejects
+    -- the whole file over it: the generator's own header comment once
+    -- carried one and every node in the mod silently failed to load
+    -- ('The string "--" is not permitted within comments'), which read
+    -- in game as NPCs still using the zombie clips.
+    for body in xml:gmatch("<!%-%-(.-)%-%->") do
+        assert(not body:find("%-%-"),
+            name .. " has \"--\" inside an XML comment; the whole file will fail to parse")
+    end
     assert(xml:find("<m_Name>BNSNPC</m_Name>"),
         name .. " must be gated on BNSNPC or it would apply to real zombies")
     assert(xml:find("<m_AnimName>Bob_"),

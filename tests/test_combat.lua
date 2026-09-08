@@ -305,7 +305,63 @@ assert(BNS.dist(standoff.pathedTo[1], standoff.pathedTo[2], rusher.x, rusher.y)
     "opening the range rather than closing it")
 print("gunner standoff OK")
 
--- 9. Taking a hit spoils a swing in progress --------------------------------------------
+-- 9. Attack speed is one knob over every interval ---------------------------------------
+-- The sandbox default is half speed: NPCs swing and shoot at half the
+-- rate they otherwise would, which is what gives a player time to read a
+-- windup and step out of it. It must not touch anything else.
+assert(BNS.Options().attackSpeed == 0.5, "half speed is the shipped default")
+
+-- Both beats of the cycle, measured straight off the tempo function so
+-- the comparison is not at the mercy of whether a swing happened to land.
+local function beatsAt(speed)
+    SandboxVars.BNS.NPCAttackSpeed = speed
+    local b = newBrain({ item = "Base.Axe", dmg = 0.2, range = 1.3, gun = false })
+    return BNS.Combat.swingTicks(b, BNS.Combat.WINDUP),
+           BNS.Combat.swingTicks(b, BNS.Combat.RECOVER)
+end
+local fullWind, fullRecover = beatsAt(1.0)
+local halfWind, halfRecover = beatsAt(0.5)
+assert(halfWind == fullWind * 2,
+    "half speed doubles the windup: " .. halfWind .. " vs " .. fullWind)
+assert(halfRecover == fullRecover * 2,
+    "and the recovery: " .. halfRecover .. " vs " .. fullRecover)
+
+-- And it really is visible on a live swing, not just in the arithmetic.
+SandboxVars.BNS.NPCAttackSpeed = 0.5
+local slowB = newBrain({ item = "Base.Axe", dmg = 0.2, range = 1.3, gun = false })
+local slowN, slowT = makeNPC(slowB, 0, 0), makePlayer(1, 0)
+BNS.Combat.attack(slowN, slowB, slowT)
+assert(slowB.swingTimer == halfWind,
+    "a swing ordered at half speed takes the slow windup")
+
+local function shotGapAt(speed)
+    SandboxVars.BNS.NPCAttackSpeed = speed
+    math.randomseed(5) -- the between-burst pause is rolled, so pin it
+    local b = newBrain(pistol)
+    local n, t = makeNPC(b, 0, 0), makePlayer(5, 0)
+    BNS.Combat.ensureAmmo(b)
+    BNS.Combat.tick(n, b)
+    BNS.Combat.attack(n, b, t) -- first round goes immediately
+    return b.shotTimer
+end
+local fullGap = shotGapAt(1.0)
+local halfGap = shotGapAt(0.5)
+assert(halfGap == fullGap * 2,
+    "half speed doubles the gap between rounds: " .. halfGap .. " vs " .. fullGap)
+SandboxVars.BNS.NPCAttackSpeed = nil
+
+-- Accuracy, damage and the aim ramp are deliberately untouched by it.
+SandboxVars.BNS.NPCAttackSpeed = 0.25
+local slowBrain = newBrain(pistol)
+slowBrain.aimTicks = BNS.Combat.AIM_FULL
+local fastFactor = BNS.Combat.aimFactor(slowBrain)
+SandboxVars.BNS.NPCAttackSpeed = 2.0
+assert(BNS.Combat.aimFactor(slowBrain) == fastFactor,
+    "attack speed does not change how well they shoot, only how often")
+SandboxVars.BNS.NPCAttackSpeed = nil
+print("attack speed knob OK (x2 intervals at 0.5)")
+
+-- 10. Taking a hit spoils a swing in progress -------------------------------------------
 local hurtBrain = newBrain(axe)
 local hurtNpc, foe = makeNPC(hurtBrain, 0, 0), makePlayer(1, 0)
 BNS.Combat.attack(hurtNpc, hurtBrain, foe)

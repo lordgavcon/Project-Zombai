@@ -72,6 +72,12 @@ option BNS.NPCDamageMultiplier
 	page = BNS, translation = BNS_NPCDamageMultiplier,
 }
 
+option BNS.NPCAttackSpeed
+{
+	type = double, min = 0.25, max = 2.0, default = 0.5,
+	page = BNS, translation = BNS_NPCAttackSpeed,
+}
+
 option BNS.DoorOpenDelay
 {
 	type = integer, min = 1, max = 10, default = 3,

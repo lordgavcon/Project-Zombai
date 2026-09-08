@@ -301,6 +301,34 @@ function BNS.Debug.animProbe(player, args)
         readShell(shell, "getPathTargetY") or "-",
         brain.pathCount or 0, brain.pathLost or 0))
 
+    -- The clip the engine is actually playing. This is the observation
+    -- that settles "are they using player animations?" without anyone
+    -- having to squint at a bandit: a Bob_* name means a BNS node won,
+    -- anything else means the overlays are not being selected. (All
+    -- ninety of them once failed to load over an XML comment, and from
+    -- the outside that was indistinguishable from them losing.)
+    if shell.dbgGetAnimTrackName then
+        local tracks = {}
+        for i = 0, 3 do
+            local ok, name = pcall(function() return shell:dbgGetAnimTrackName(i) end)
+            if not ok then
+                table.insert(tracks, "[err]")
+                break
+            end
+            if name == nil or tostring(name) == "" then break end
+            local weight = "?"
+            if shell.dbgGetAnimTrackWeight then
+                local okW, w = pcall(function() return shell:dbgGetAnimTrackWeight(i) end)
+                if okW and w then weight = string.format("%.2f", w) end
+            end
+            table.insert(tracks, tostring(name) .. "@" .. weight)
+        end
+        note(player, "  playing: " .. (#tracks > 0 and table.concat(tracks, ", ")
+            or "[no tracks reported]"))
+    else
+        note(player, "  playing: [no dbgGetAnimTrackName on this build]")
+    end
+
     -- Displacement since the last probe: the only observation that
     -- actually proves the shell is walking.
     local x, y = shell:getX(), shell:getY()

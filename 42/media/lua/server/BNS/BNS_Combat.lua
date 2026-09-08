@@ -60,6 +60,23 @@ BNS.Combat.TIRED_SLOWDOWN = 1.6 -- cycle multiplier when fully spent
 BNS.Combat.AIM_FULL = 90 -- engine ticks (1.5s)
 BNS.Combat.AIM_FLOOR = 0.45
 
+-- One knob over every attack interval, so "how hard are they to fight"
+-- is a single sandbox number rather than a dozen constants to keep in
+-- step. It is a *speed*, so 0.5 (the default) means every swing cycle and
+-- every gap between rounds takes twice as long: half the attacks in the
+-- same time. It never touches accuracy, damage or how fast they walk --
+-- only the pace they attack at, which is the part the player reads.
+function BNS.Combat.speed()
+    local s = BNS.Options().attackSpeed or 1.0
+    if s <= 0 then return 1.0 end
+    return s
+end
+
+-- Stretch a base interval by the current attack speed.
+function BNS.Combat.interval(ticks)
+    return math.max(math.floor(ticks / BNS.Combat.speed()), 1)
+end
+
 local BODY_PARTS = {
     BodyPartType.Torso_Upper, BodyPartType.Torso_Lower,
     BodyPartType.UpperArm_L, BodyPartType.UpperArm_R,
@@ -118,7 +135,7 @@ function BNS.Combat.swingTicks(brain, base)
     local weight = BNS.Combat.SwingWeight[BNS.Anim.weaponClass(brain.weapon)] or 1.0
     local tired = 1.0 + (1.0 - math.min(brain.stamina or 1.0, 1.0))
         * (BNS.Combat.TIRED_SLOWDOWN - 1.0)
-    return math.max(math.floor(base * weight * tired), 4)
+    return math.max(BNS.Combat.interval(base * weight * tired), 4)
 end
 
 -- Magazine, reload time and burst discipline for a gun. Kept out of the
@@ -342,10 +359,11 @@ local function fireRound(zombie, brain, tx, ty, onHit, hitChance)
     -- comes down for a beat before the next one.
     brain.burstLeft = (brain.burstLeft or ammo.burst) - 1
     if brain.burstLeft > 0 then
-        brain.shotTimer = ammo.rof
+        brain.shotTimer = BNS.Combat.interval(ammo.rof)
     else
         brain.burstLeft = nil
-        brain.shotTimer = ZombRand(math.floor(ammo.rof * 2), math.floor(ammo.rof * 5))
+        brain.shotTimer = BNS.Combat.interval(
+            ZombRand(math.floor(ammo.rof * 2), math.floor(ammo.rof * 5)))
     end
 end
 

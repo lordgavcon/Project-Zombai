@@ -30,7 +30,11 @@
   melee backup and come for you. Accuracy is earned by holding still —
   a bandit who has been walking shoots badly — and they won't shoot
   through a wall. Let one walk into your face and it gives ground rather
-  than surrendering its range advantage.
+  than surrendering its range advantage. The whole attack pace is one
+  sandbox slider (**NPC attack speed**, default 0.5 — half speed), so if
+  you want fights faster or slower than shipped, that is the only number
+  to move; it changes how often they attack, never how hard or how
+  accurately.
 - **NPCs amble, they don't march** — wandering is a slow walk with pauses. On reaching somewhere an NPC usually stands around for ten to fifty seconds before picking a new destination, so a street with people on it looks lived-in rather than like a parade. Zombies nearby cancel the standing about; a player watching does not.
 - **Persistence** — every NPC is a record in global mod data. NPCs near players are fully simulated ("live"); distant ones are *virtualised* — despawned but still travelling the map abstractly — and rematerialise when you come near their current position. State survives save/load and server restarts.
 - **Multiplayer compatible** — all AI, combat, robbery, raid and trade logic runs on the server; clients only render speech/UI and send trade proposals, which the server validates (no client-side item forging). The same server code runs in-process in single player, so SP and MP share one code path.
@@ -213,8 +217,12 @@ Non-admin requests are dropped and logged.
   `tools/gen_animsets.lua` — one table of fifteen nodes emitted into every
   AnimState a shell can be in; edit the generator and re-run it, never the
   XML. (Until this was fixed the overlays wrote STRING conditions as
-  `<m_Value>` instead of `<m_StringValue>`, so no node ever matched and
-  NPCs used the vanilla zombie clips throughout.)
+  `<m_Value>` instead of `<m_StringValue>`, so no node ever matched; and
+  then the generator's own header comment contained `--`, which is illegal
+  inside an XML comment, so every node was rejected at load instead. Both
+  looked identical in game — NPCs using the vanilla zombie clips — and
+  both are now covered by the test suite, the second by parsing every
+  overlay with a real XML parser.)
   A client-side `IsoPlayer` proxy layer was tried and **removed**: on
   42.20.4 every step verified — descriptor, constructor, square
   registration, puppet hiding — and the engine still never drew the
@@ -226,9 +234,10 @@ Non-admin requests are dropped and logged.
   `zombieidle`, `pathfind`, `walktoward`, `walktowards`, `attack`) rather
   than a single guess: an AnimNode only competes inside its own state
   directory, and a directory the build does not use is simply never read.
-  The Anim lab's **PROBE** prints the shell's live `getCurrentStateName` /
-  `getAnimationStateName`, so the list can be trimmed to the truth in
-  `tools/gen_animsets.lua` once a running game has answered.
+  A 42.20 run confirms the game reads all six. The Anim lab's **PROBE**
+  prints the shell's live `getCurrentStateName` / `getAnimationStateName`
+  and the clip it is actually playing, so the list can be trimmed to the
+  truth in `tools/gen_animsets.lua`.
 - Animation variables are set server-side. If MP clients show zombie
   animations while single player shows human ones, they are not
   replicating and the fix is a client-side mirror pass — the variables are

@@ -40,6 +40,15 @@ See README.md for the feature list and the code-layout map. Key facts:
   `knife`, `spear`, `handgun`, `firearm`, `chainsaw`, `throwing`) must come
   from the game's own `media/AnimSets/player/`, never from memory —
   `tests/test_anim.lua` enforces the form and the mode coverage.
+- **The overlays are parsed by a real XML parser, so they must be real
+  XML.** An XML comment may not contain `--` anywhere; the generator's own
+  header comment carried one and *all ninety nodes* were rejected at load
+  (`The string "--" is not permitted within comments`, one stack trace per
+  file in `console.txt`) — from in game that is indistinguishable from the
+  nodes losing to vanilla. `tests/run_tests.sh` now parses every overlay
+  with a real parser where `python3` is available, and `test_anim.lua`
+  fails on `--` inside a comment regardless. A Lua string check over the
+  XML is not enough: it does not see what the game's parser sees.
 - **An AnimNode only competes inside its own AnimState directory**, and
   the shell's engine state has nothing to do with the mode the brain asks
   for: BNS suppresses the shell's target, so it never enters its own
@@ -153,6 +162,12 @@ Two invariants worth keeping in mind when touching the debug code:
   Fortifying and stocking are gated on it; the approach ring is measured
   from the building's centre. Never reintroduce a radius test for what
   counts as inside a stronghold.
+- **Attack pace is one knob.** Every attack interval — both melee beats
+  and the gaps between rounds — goes through `BNS.Combat.interval`, which
+  divides by the `NPCAttackSpeed` sandbox option (default **0.5**, half
+  speed). Never hard-code a new attack interval past it, or the sandbox
+  setting starts lying. It is a *pace* knob only: accuracy, damage, reload
+  length and movement speed are deliberately outside it.
 - **Combat is a rhythm, not a cooldown.** A melee swing is windup ->
   contact -> recovery (`BNS.Combat.WINDUP` / `RECOVER`, scaled by the
   weapon's class through `SwingWeight`). It *commits* at the windup, so a
