@@ -144,6 +144,38 @@ function BNS.getPlayers()
     return out
 end
 
+-- Shared bandit behaviour ------------------------------------------------
+--
+-- Every bandit behaves the same way, whatever their tier. The tiers used
+-- to fork the *rules*: only civilians ran when hurt, only civilians and
+-- thugs would rob you, militia stood their ground three times as often,
+-- and each hit doors for a different number. That made a bandit's tier
+-- something you had to learn separately rather than the same person with
+-- better kit, and it made every one of those behaviours a separate code
+-- path to get wrong.
+--
+-- So the rules live here, once, and every tier reads them. What a tier
+-- still decides is *gear* -- which weapons and outfits they roll, and how
+-- likely a firearm is -- plus one stat, toughness, because that is what a
+-- tier is for. Nothing else should branch on `brain.tier`.
+BNS.Behaviour = {
+    robChance   = 40,   -- % chance an engagement opens as a robbery
+    fleeHealth  = 0.35, -- below this, a hurt bandit breaks off
+    standChance = 10,   -- % who stand their ground against a zombie mob
+    grabHold    = 120,  -- engine ticks held by a zombie's grab
+    bashDamage  = 35,   -- damage per bash against a door's durability
+    spareMags   = 2,    -- spare magazines carried
+    squadMin    = 2,    -- how many arrive together
+    squadMax    = 4,
+}
+
+-- The one thing a tier still changes about a bandit in a fight.
+BNS.Toughness = {
+    [BNS.Tier.CIVILIAN] = 1.0,
+    [BNS.Tier.THUG]     = 1.15,
+    [BNS.Tier.MILITIA]  = 1.3,
+}
+
 -- How many NPC records may exist at once.
 --
 -- New NPCs are created *virtual*, out in the unloaded world, so the live

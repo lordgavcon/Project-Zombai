@@ -24,14 +24,10 @@ local BASH_EVERY       = 90  -- ticks between bashes (~1.5s)
 local NOISE_RADIUS_OPEN = 20 -- world-sound radius of the rattle
 local NOISE_RADIUS_BASH = 25 -- bashing wakes the whole street
 
--- Damage dealt per bash, by tier. Bashing works against the door's
--- actual durability, so a reinforced or metal door takes far longer to
--- breach than a flimsy interior one.
-local BASH_DAMAGE = {
-    [BNS.Tier.CIVILIAN] = 25,
-    [BNS.Tier.THUG]     = 40,
-    [BNS.Tier.MILITIA]  = 60,
-}
+-- Damage per bash is BNS.Behaviour's, and the same for every bandit.
+-- Bashing works against the door's actual durability, so a reinforced or
+-- metal door still takes far longer to breach than a flimsy interior one
+-- -- the door decides how long it holds, not who is hitting it.
 local DEFAULT_DOOR_HP = 300 -- plain wood door, when the engine exposes no health
 local GIVE_UP_BASHES  = 60  -- ~90s of hammering: this door is too strong, leave
 
@@ -133,10 +129,10 @@ local function openDoor(zombie, door)
     if door.setOpened then pcall(function() door:setOpened(true) end) end
 end
 
--- How hard this bandit hits a door: tier base, half again with a
--- proper breaching tool in hand.
+-- How hard this bandit hits a door: the shared base, half again with a
+-- proper breaching tool in hand -- the tool is the difference, not them.
 local function bashDamage(brain)
-    local dmg = BASH_DAMAGE[brain.tier] or 25
+    local dmg = BNS.Behaviour.bashDamage
     local w = brain.weapon
     if w and not w.gun and w.item
             and (w.item:find("Axe") or w.item:find("Sledge")) then

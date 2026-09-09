@@ -145,6 +145,7 @@ function BNS.Debug.snapshot(player)
             stamina = brain and brain.stamina or nil,
             swing = brain and brain.swingPhase or nil,
             down = brain and BNS.Combat.isDown(brain) or false,
+            staggered = brain and BNS.Combat.isStaggered(brain) or false,
             lunges = brain and brain.lunges or 0,
             jams = brain and brain.zJams or 0,
             held = brain and brain.stateLocked or false,
@@ -635,6 +636,32 @@ BNS.Debug.Scenarios = {
                 end
             end
             for _, line in ipairs(BNS.Look.report()) do note(player, "  " .. line) end
+        end,
+    },
+    stagger = {
+        label = "Stagger + always clothed",
+        watch = "hit them: a solid one knocks them off their beat, takes "
+            .. "the swing they were part way through and buys you the next "
+            .. "hit. PROBE reports worn= for what they have on -- it should "
+            .. "never be 0",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 2 })
+            for _, id in ipairs(ids or {}) do
+                local shell = BNS.Debug.findNPC(id)
+                if shell then
+                    local brain = BNS.brain(shell)
+                    brain.warned, brain.warnTimer = true, nil
+                    brain.program = BNS.Program.ATTACK
+                    note(player, "  " .. tostring(brain.name) .. ": "
+                        .. BNS.Look.describe(shell))
+                end
+            end
+            note(player, string.format(
+                "every tier plays by the same rules now: rob %d%%, break off "
+                    .. "below %d%% health, %d%% stand their ground, %d damage a bash",
+                BNS.Behaviour.robChance,
+                math.floor(BNS.Behaviour.fleeHealth * 100),
+                BNS.Behaviour.standChance, BNS.Behaviour.bashDamage))
         end,
     },
     squads = {

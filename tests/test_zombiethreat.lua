@@ -145,7 +145,8 @@ for _ = 1, 200 do
 end
 assert(grabbed, "grab eventually lands at contact range")
 assert(vb.animBase == "grabbed", "grabbed anim engaged (base mode survives hit pulses)")
-assert(vb.grabbedTimer == 150, "civilians held longest (150 ticks)")
+assert(vb.grabbedTimer == BNS.Behaviour.grabHold,
+    "the same struggle for everyone, whatever their tier")
 print("grab mechanics OK")
 
 -- 5. NPC kills zombies through attackZombie -----------------------------

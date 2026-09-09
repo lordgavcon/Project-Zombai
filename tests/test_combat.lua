@@ -699,7 +699,82 @@ assert(BNS.Combat.faceProbe == false, "and locked out for the session")
 BNS.Combat.faceProbe = nil
 print("face-call lockout OK")
 
--- 15. Taking a hit spoils a swing in progress -------------------------------------------
+-- 15. Being hit staggers them ------------------------------------------------------------
+-- Without an interruption a fight is two damage numbers trading with no
+-- way to win a moment: nothing a player does buys them the next hit.
+BNS.Combat.setterProbe = {}
+local stagBrain = newBrain(axe)
+local stagNpc, stagFoe = makeNPC(stagBrain, 0, 0), makePlayer(1, 0)
+local leaned = false
+function stagNpc:setStaggerBack(v) leaned = v end
+function stagNpc:setHealth() end
+
+BNS.Combat.attack(stagNpc, stagBrain, stagFoe)
+assert(stagBrain.swingPhase == "windup", "they are mid-swing")
+BNS.Combat.receiveHit(stagNpc, stagBrain, silent, nil, 2.0)
+assert(BNS.Combat.isStaggered(stagBrain), "a solid hit staggers them")
+assert(stagBrain.swingPhase == nil, "and takes the swing they were part way through")
+assert(stagNpc.vars.BNSAnim == "hit", "the flinch plays")
+assert(leaned, "and the engine leans them back where it can")
+assert(not BNS.Combat.canAttack(stagBrain), "they cannot attack while off their beat")
+assert(BNS.Combat.isBusy(stagBrain), "and programs treat them as busy")
+
+-- Nothing lands from them while it lasts, and then it passes.
+local hitsAt = #stagFoe.hits
+run(stagNpc, stagBrain, stagFoe, BNS.Combat.STAGGER_TICKS - 2)
+assert(#stagFoe.hits == hitsAt, "nothing of theirs lands mid-stagger")
+assert(BNS.Combat.isStaggered(stagBrain), "still staggered just before it ends")
+run(stagNpc, stagBrain, stagFoe, 4)
+assert(not BNS.Combat.isStaggered(stagBrain), "and it passes on its own")
+assert(BNS.Combat.canAttack(stagBrain), "leaving them able to fight again")
+
+-- A heavy hit always staggers; a light one is a roll, so it must at least
+-- be possible both ways rather than a certainty dressed up as a chance.
+assert(BNS.Combat.staggersFrom(BNS.Combat.STAGGER_HEAVY),
+    "a heavy hit always knocks them off their beat")
+local light, staggered = 0, 0
+for _ = 1, 400 do
+    light = light + 1
+    if BNS.Combat.staggersFrom(0.02) then staggered = staggered + 1 end
+end
+assert(staggered > 0 and staggered < light,
+    "a glancing one sometimes does and sometimes does not, got " .. staggered)
+
+-- Someone already on the floor is past staggering.
+local downed = newBrain(axe)
+local downedNpc = makeNPC(downed, 0, 0)
+BNS.Combat.goDown(downedNpc, downed)
+assert(not BNS.Combat.stagger(downedNpc, downed),
+    "you cannot stagger someone who is already down")
+assert(not BNS.Combat.isStaggered(downed), "they stay down rather than becoming staggered")
+print("stagger OK (" .. BNS.Combat.STAGGER_TICKS .. " ticks)")
+
+-- 16. Every tier fights by the same rules -------------------------------------------------
+-- Tiers used to fork the rules: only civilians ran when hurt, so a
+-- wounded thug fought to the death every time and read as a different
+-- creature rather than a tougher person.
+for _, tier in ipairs({ BNS.Tier.CIVILIAN, BNS.Tier.THUG, BNS.Tier.MILITIA }) do
+    local b = newBrain(axe, tier)
+    local n = makeNPC(b, 0, 0)
+    function n:setHealth() end
+    b.health = BNS.Behaviour.fleeHealth + 0.01
+    BNS.Combat.damageNPC(n, b, 0.02)
+    assert(b.program == BNS.Program.FLEE,
+        "tier " .. tier .. " breaks off when badly hurt, like everyone else")
+end
+-- Toughness is the one thing a tier still changes, and it only scales how
+-- fast that same threshold arrives.
+local soft = newBrain(axe, BNS.Tier.CIVILIAN)
+local hard = newBrain(axe, BNS.Tier.MILITIA)
+local softNpc, hardNpc = makeNPC(soft, 0, 0), makeNPC(hard, 0, 0)
+function softNpc:setHealth() end
+function hardNpc:setHealth() end
+BNS.Combat.damageNPC(softNpc, soft, 0.2)
+BNS.Combat.damageNPC(hardNpc, hard, 0.2)
+assert(hard.health > soft.health, "a militiaman takes the same hit better")
+print("tiers share their rules OK")
+
+-- 17. Taking a hit spoils a swing in progress -------------------------------------------
 local hurtBrain = newBrain(axe)
 local hurtNpc, foe = makeNPC(hurtBrain, 0, 0), makePlayer(1, 0)
 BNS.Combat.attack(hurtNpc, hurtBrain, foe)

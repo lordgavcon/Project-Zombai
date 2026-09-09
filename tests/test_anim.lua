@@ -350,6 +350,52 @@ getSpecificPlayer = nil
 BNS.Look.clearSkinCache()
 print("zombie moan silencing OK (" .. #stopped .. " sounds cut)")
 
+-- 5c. Nobody turns up naked --------------------------------------------------------------
+-- addZombiesInOutfit takes an outfit *name*, and a name this build does
+-- not have leaves the shell with nothing on rather than erroring -- so
+-- the outfit list is a set of unverifiable strings with a very visible
+-- failure mode. The fix is to ask the shell what it is wearing rather
+-- than to trust the name.
+BNS.Look.support = {}
+BNS.Look.broken = {}
+local dressed = { count = 0, calls = 0 }
+local nakedShell = {
+    getHumanVisual = function() return nil end,
+    getItemVisuals = function() return nil end,
+    getWornItems = function()
+        return { size = function() return dressed.count end }
+    end,
+    dressInRandomNonSillyOutfit = function()
+        dressed.calls = dressed.calls + 1
+        dressed.count = 4
+    end,
+}
+BNS.Look.apply(nakedShell, { look = { outfit = "NoSuchOutfit" } })
+assert(dressed.count > 0, "a shell that spawned naked is dressed in something")
+assert(BNS.Look.support["clothed"] == true, "and reported as clothed")
+
+-- One that is already dressed is left alone: re-rolling their clothes on
+-- every re-assert would change what a bandit looks like as you watch.
+local before = dressed.calls
+for _ = 1, 10 do BNS.Look.apply(nakedShell, { look = {} }) end
+assert(dressed.calls == before, "an already-dressed shell is not re-dressed")
+
+-- A build that will not dress them says so rather than reporting success.
+BNS.Look.support = {}
+BNS.Look.broken = {}
+local stubbornlyNaked = {
+    getHumanVisual = function() return nil end,
+    getItemVisuals = function() return nil end,
+    getWornItems = function() return { size = function() return 0 end } end,
+    dressInRandomNonSillyOutfit = function() end,
+}
+BNS.Look.apply(stubbornlyNaked, { look = {} })
+assert(BNS.Look.support["clothed"] == false,
+    "a shell that could not be dressed is reported, not quietly passed")
+BNS.Look.support = {}
+BNS.Look.broken = {}
+print("always clothed OK")
+
 -- 6. Item visuals whose setters are per-body-part ------------------------------------
 -- The engine's ItemVisual wants setBlood(BloodBodyPartType, value); the
 -- first in-game run threw "expected 2 arguments, got 1" on every call.

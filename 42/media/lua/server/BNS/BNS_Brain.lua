@@ -143,6 +143,17 @@ local function updateNPC(zombie, brain)
         return
     end
     brain.wentDown = nil
+    -- Staggered: off their beat for a moment. Shorter and lighter than
+    -- being downed -- they keep their feet, they just cannot act on them,
+    -- so no attacking and no new orders until it passes.
+    if BNS.Combat.isStaggered(brain) then
+        if not brain.wasStaggered then
+            brain.wasStaggered = true
+            BNS.Programs.stopMoving(zombie, brain, brain.animBase or "idle")
+        end
+        return
+    end
+    brain.wasStaggered = nil
     -- Held by a zombie: struggle in place, no moving or attacking until
     -- the grip breaks (the ~1/s threat scan below keeps applying the
     -- crowd's scratches while held).
@@ -300,7 +311,7 @@ function BNS.Brain.onWeaponHitCharacter(attacker, target, weapon, damage)
     -- warning: they still shout, but skip the hold.
     if brain.health > 0 then
         if brain.role ~= BNS.Role.BANDIT then brain.role = BNS.Role.BANDIT end
-        brain.program = (brain.tier == BNS.Tier.CIVILIAN and brain.health < 0.4)
+        brain.program = (brain.health < BNS.Behaviour.fleeHealth)
             and BNS.Program.FLEE or BNS.Program.ATTACK
         -- Being shot at is its own warning: they skip the telegraph
         -- entirely rather than firing one back over your head first.

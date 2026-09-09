@@ -96,6 +96,25 @@ See README.md for the feature list and the code-layout map. Key facts:
   body, and standing an idle up on the floor would look worse than the
   vanilla get-up. Add those states to `tools/gen_animsets.lua` only once
   the clip names are read off a real install.
+- **Every bandit plays by the same rules; a tier is gear.**
+  `BNS.Behaviour` (in `BNS_Core.lua`) holds them once — robbery odds,
+  the health a hurt bandit breaks off at, last-stand chance, grab hold,
+  bash damage, spare magazines, squad size — and every tier reads it.
+  Tiers used to fork the *rules*: only civilians ran when hurt, militia
+  never robbed at all, each hit doors for a different number. That made a
+  bandit's tier something to learn separately rather than the same person
+  with better kit, and made each of those behaviours its own code path to
+  get wrong. What a tier still decides is which weapons and outfits they
+  roll, how likely a firearm is, and `BNS.Toughness`. **Nothing else may
+  branch on `brain.tier`.**
+- **Being hit interrupts.** `BNS.Combat.stagger` is the small version of
+  being knocked down: it takes the swing they were part way through, cuts
+  a settled aim, plays the flinch, and gates `canAttack`/`isBusy` for
+  `STAGGER_TICKS`. Without it a fight is two damage numbers trading and
+  nothing the player does buys them the next hit. Zombies stagger NPCs on
+  the same rule — it is not a player privilege. `setStaggerBack` is safe
+  to hand a shell where the combat-action flags are not: it is a
+  *reaction*, so it does not drag them into the ballistics path.
 - **Hostility is a role, not a program.** `BNS.Combat.attack` refuses
   outright unless `BNS.isHostile(brain)`, so a survivor or trader stood
   against a player does nothing whatever transition put them there; a
@@ -311,6 +330,15 @@ Two invariants worth keeping in mind when touching the debug code:
   and on a throttle in between (facing is an engine command; per-tick
   engine commands are what make NPCs skate). Shooters face on each round
   and while holding aim.
+- **Never trust an outfit name; ask what they are wearing.**
+  `addZombiesInOutfit` takes an outfit *name*, and a name this build does
+  not have leaves the shell with nothing on rather than erroring — which
+  is how bandits turned up naked. `BNS.Look`'s `clothed` op reads
+  `getWornItems():size()` and, only when that is zero, dresses them with
+  `dressInRandomNonSillyOutfit`, which needs no name at all. A clothed
+  bandit in the wrong jacket beats a naked one in the right story. It runs
+  at materialise as well as on the slow re-assert, because a naked shell
+  is naked from the first frame it is drawn, and PROBE prints `worn=`.
 - **Human skin is not just the skin index.** `HumanVisual` carries a
   `zombieRotStage` -- the decay variant the texture creator composites
   over the body, rolled at spawn by `pickRandomZombieRotStage` -- and

@@ -199,6 +199,16 @@ Non-admin requests are dropped and logged.
   table if a gun feels wrong. The reload has no sound of its own, because
   a sound name cannot be verified offline; the tell is the weapon coming
   down, the callout, and the bandit giving ground.
+- **Hitting one knocks them off their beat.** A solid hit staggers an NPC:
+  the swing they were part way through is gone, their aim is spoiled, and
+  they cannot act until they recover — so landing one buys you the next
+  one, and a fight is something you can win a moment in rather than two
+  damage numbers trading. Zombies stagger them too.
+- **A bandit's tier is their kit, not their personality.** Every bandit
+  robs on the same odds, breaks off at the same wound, stands their ground
+  as often, and hits a door as hard. What separates a desperate civilian
+  from a rogue militiaman is what they are carrying and how much
+  punishment they soak — not a different set of rules to learn.
 - **Bandits come in groups and stay in them.** Nobody arrives alone —
   the desperate travel in pairs, thugs run with a crew of two to four,
   militia move as a fire team of three to five — and the group holds

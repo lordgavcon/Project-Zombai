@@ -303,6 +303,50 @@ function BNS.Combat.holdState(zombie, brain, want)
     return brain.stateLocked == true
 end
 
+-- Staggering ------------------------------------------------------------
+--
+-- Being hit has to *interrupt* someone, or a fight is two damage numbers
+-- trading with no way to win a moment. A stagger is the small version of
+-- being knocked down: the swing they were mid-way through is lost, they
+-- cannot start another until it passes, and the flinch clip plays.
+--
+-- Short on purpose. It is an opening, not a stun-lock: long enough that a
+-- clean hit buys you the next one, not so long that four bandits can hold
+-- each other still.
+BNS.Combat.STAGGER_TICKS = 40   -- ~0.7s
+BNS.Combat.STAGGER_HEAVY = 0.25 -- damage above this always staggers
+BNS.Combat.STAGGER_CHANCE = 55  -- % otherwise
+
+function BNS.Combat.isStaggered(brain)
+    return brain ~= nil and brain.staggerTimer ~= nil
+end
+
+-- Knock someone off their beat. Returns true if it landed.
+function BNS.Combat.stagger(zombie, brain, ticks)
+    if BNS.Combat.isDown(brain) then return false end -- already worse off
+    brain.staggerTimer = math.max(ticks or BNS.Combat.STAGGER_TICKS,
+        brain.staggerTimer or 0)
+    -- The swing they were part way through is gone, and so is a settled
+    -- aim: both are the point of staggering someone.
+    brain.swingPhase, brain.swingTimer, brain.whiffed = nil, nil, nil
+    brain.aimTicks = 0
+    brain.stamina = math.max((brain.stamina or 1.0) - 0.05, 0)
+    BNS.Anim.pulse(zombie, brain, "hit",
+        BNS.Combat.clipHold(brain.staggerTimer,
+            BNS.Combat.SHOT_HOLD_MIN, BNS.Combat.SWING_HOLD_MAX))
+    -- Let the engine lean them back too where it can. Unlike the combat
+    -- action flags, this is a reaction rather than an attack, so it does
+    -- not drag the shell into the player-only ballistics path.
+    BNS.Combat.applyFlag(zombie, "setStaggerBack", true)
+    return true
+end
+
+-- Does a hit of this size knock them off their beat?
+function BNS.Combat.staggersFrom(amount)
+    if (amount or 0) >= BNS.Combat.STAGGER_HEAVY then return true end
+    return ZombRand(100) < BNS.Combat.STAGGER_CHANCE
+end
+
 function BNS.Combat.isStomp(attacker)
     return anyFlag(attacker, BNS.Combat.StompFlags)
 end
@@ -458,6 +502,7 @@ end
 function BNS.Combat.canAttack(brain)
     if brain == nil then return false end
     if BNS.Combat.isDown(brain) then return false end
+    if BNS.Combat.isStaggered(brain) then return false end
     return brain.animMode ~= "run"
 end
 
@@ -500,10 +545,7 @@ end
 function BNS.Combat.gunProfile(brain)
     local w = brain.weapon or {}
     local prof = BNS.Loadouts.Magazines[w.item] or BNS.Loadouts.MagazineDefault
-    local spares = prof.spares or 1
-    -- Better-equipped bandits came out with more on their belt.
-    if brain.tier == BNS.Tier.MILITIA then spares = spares + 2
-    elseif brain.tier == BNS.Tier.THUG then spares = spares + 1 end
+    local spares = (prof.spares or 1) + BNS.Behaviour.spareMags
     return {
         left = prof.mag, mag = prof.mag, spares = spares,
         reload = prof.reload, burst = prof.burst, rof = prof.rof,
@@ -596,6 +638,10 @@ function BNS.Combat.tick(zombie, brain)
     if brain.shoveTimer and brain.shoveTimer > 0 then
         brain.shoveTimer = brain.shoveTimer - 1
     end
+    if brain.staggerTimer then
+        brain.staggerTimer = brain.staggerTimer - 1
+        if brain.staggerTimer <= 0 then brain.staggerTimer = nil end
+    end
     if brain.reloadTimer then
         brain.reloadTimer = brain.reloadTimer - 1
         if brain.reloadTimer <= 0 then
@@ -622,6 +668,7 @@ BNS.Combat.RECOVERED = 0.60 -- breath they must get back before re-engaging
 
 function BNS.Combat.isBusy(brain)
     if BNS.Combat.isDown(brain) then return true end
+    if BNS.Combat.isStaggered(brain) then return true end
     local stamina = brain.stamina or 1.0
     if stamina < BNS.Combat.WINDED then brain.blown = true end
     if brain.blown and stamina >= BNS.Combat.RECOVERED then brain.blown = nil end
@@ -847,7 +894,11 @@ function BNS.Combat.receiveHit(zombie, brain, attacker, weapon, damage)
         return "shoved"
     end
     -- Engine damage numbers vary wildly by weapon; normalise to our scale.
-    BNS.Combat.damageNPC(zombie, brain, math.min((damage or 0.5) / 2.5, 0.9))
+    local amount = math.min((damage or 0.5) / 2.5, 0.9)
+    BNS.Combat.damageNPC(zombie, brain, amount)
+    -- A solid hit knocks them off their beat, which is what makes a
+    -- fight winnable rather than a damage race.
+    if BNS.Combat.staggersFrom(amount) then BNS.Combat.stagger(zombie, brain) end
     return "hurt"
 end
 
@@ -855,20 +906,21 @@ end
 -- track brain.health so tiers can differ in toughness and records can
 -- persist wounds. Called from OnHitZombie-style hooks in BNS_Brain.
 function BNS.Combat.damageNPC(zombie, brain, amount)
-    local toughness = 1.0
-    if brain.tier == BNS.Tier.THUG then toughness = 1.3 end
-    if brain.tier == BNS.Tier.MILITIA then toughness = 1.6 end
+    local toughness = BNS.Toughness[brain.tier] or 1.0
     brain.health = (brain.health or 1.0) - amount / toughness
     -- Being hit knocks the wind out and spoils a swing in progress: a
-    -- bandit caught mid-windup does not get that swing.
+    -- bandit caught mid-windup does not get that swing. (A stagger takes
+    -- the swing away outright; this covers hits that do not stagger.)
     brain.stamina = math.max((brain.stamina or 1.0) - 0.05, 0)
     if brain.swingPhase == "windup" then
         brain.swingPhase = "recover"
         brain.swingTimer = BNS.Combat.swingTicks(brain, BNS.Combat.RECOVER)
     end
-    if brain.health <= 0.35 and brain.role == BNS.Role.BANDIT
-            and brain.tier == BNS.Tier.CIVILIAN then
-        brain.program = BNS.Program.FLEE -- cowards break
+    -- Anyone breaks at the same point. Only civilians used to run,
+    -- which meant a wounded thug or militiaman fought to the death every
+    -- time and read as a different creature rather than a tougher person.
+    if brain.health <= BNS.Behaviour.fleeHealth and brain.role == BNS.Role.BANDIT then
+        brain.program = BNS.Program.FLEE
     end
     if brain.health <= 0 then
         zombie:setHealth(0) -- engine handles the death; brain cleanup in BNS_Brain

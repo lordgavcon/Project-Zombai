@@ -145,6 +145,45 @@ local OPS = {
         end,
     },
     {
+        -- Bandits were turning up naked. `addZombiesInOutfit` takes an
+        -- outfit *name*, and a name this build does not have leaves the
+        -- shell with nothing on rather than erroring -- so the outfit
+        -- list is a set of unverifiable strings with a very visible
+        -- failure mode. Rather than guess at names, ask the shell what it
+        -- is actually wearing and dress it if the answer is "nothing":
+        -- dressInRandomNonSillyOutfit needs no name at all.
+        name = "clothed",
+        apply = function(zombie, look)
+            if not zombie.getWornItems then return false end
+            local ok, worn = pcall(function()
+                local w = zombie:getWornItems()
+                return w and w:size() or 0
+            end)
+            if not ok then return false end
+            if worn > 0 then return true end
+
+            -- Naked. Try the outfit they were meant to have, then
+            -- anything at all: a clothed bandit in the wrong jacket beats
+            -- a naked one in the right story.
+            if look and look.outfit and zombie.dressInPersistentOutfit then
+                pcall(function() zombie:dressInPersistentOutfit(look.outfit) end)
+            end
+            if zombie.dressInRandomNonSillyOutfit then
+                pcall(function() zombie:dressInRandomNonSillyOutfit() end)
+            end
+            local okAfter, after = pcall(function()
+                local w = zombie:getWornItems()
+                return w and w:size() or 0
+            end)
+            if okAfter and after > 0 then
+                BNS.log("re-dressed a shell that spawned with nothing on"
+                    .. " (outfit '" .. tostring(look and look.outfit) .. "')")
+                return true
+            end
+            return false
+        end,
+    },
+    {
         name = "clear blood",
         apply = function(zombie)
             local v = visualOf(zombie)
@@ -403,7 +442,16 @@ function BNS.Look.describe(zombie)
         if field and v[field] ~= nil then return tostring(v[field]) end
         return "-"
     end
-    return string.format("isZombie=%s rot=%s skin=%s/%s",
+    local worn = "-"
+    if zombie.getWornItems then
+        local okW, n = pcall(function()
+            local w = zombie:getWornItems()
+            return w and w:size() or 0
+        end)
+        worn = okW and tostring(n) or "[err]"
+    end
+    return string.format("worn=%s isZombie=%s rot=%s skin=%s/%s",
+        worn,
         read("isZombie"),
         read("getZombieRotStage", "zombieRotStage"),
         read("getSkinTextureIndex"), read("getSkinTexture"))

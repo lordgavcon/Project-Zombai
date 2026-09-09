@@ -249,11 +249,10 @@ BNS.Programs[BNS.Program.APPROACH] = function(zombie, brain, ctx)
     local opts = BNS.Options()
     -- Decide intent once, when first getting close.
     if ctx.dist < 6 and not brain.intent then
-        local robChance = 0
-        if opts.robbery then
-            if brain.tier == BNS.Tier.CIVILIAN then robChance = 65
-            elseif brain.tier == BNS.Tier.THUG then robChance = 35 end
-        end
+        -- Every bandit robs on the same odds. Tier used to decide this
+        -- outright -- militia never robbed at all -- which made "will
+        -- this one talk or shoot" a different question per tier.
+        local robChance = opts.robbery and BNS.Behaviour.robChance or 0
         -- Nobody tries to mug someone aiming a gun at them.
         if p:isAiming() then robChance = 0 end
         brain.intent = (ZombRand(100) < robChance) and BNS.Program.ROB or BNS.Program.ATTACK

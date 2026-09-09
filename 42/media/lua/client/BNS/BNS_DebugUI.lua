@@ -401,6 +401,7 @@ function BNS.DebugUI:rebuildList()
             if npc.reloading then flags = flags .. " [reloading]"
             elseif npc.ammo then flags = flags .. string.format(" [%d+%dmag]", npc.ammo, npc.mags or 0) end
             if npc.down then flags = flags .. " [DOWN]" end
+            if npc.staggered then flags = flags .. " [stagger]" end
             if (npc.lunges or 0) > 0 then flags = flags .. " [zed x" .. npc.lunges .. "]" end
             if (npc.jams or 0) > 0 then flags = flags .. " [JAM x" .. npc.jams .. "]" end
             if npc.held then flags = flags .. " [held]" end

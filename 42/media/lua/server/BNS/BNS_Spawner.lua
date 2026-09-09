@@ -125,7 +125,10 @@ function BNS.Spawner.materialise(rec)
     end
     zombie:getModData().BNS = brain
     BNS.Anim.init(zombie, brain)
-    -- Stop it looking like a corpse: living skin, no blood, real hair.
+    -- Stop it looking like a corpse: living skin, no blood, real hair --
+    -- and clothes. The "clothed" op runs here rather than only on the
+    -- slow re-assert because an outfit name this build does not have
+    -- leaves the shell naked from the first frame it is drawn.
     BNS.Look.apply(zombie, brain)
     -- Vehicle owners get their ride placed back beside them.
     if BNS.Vehicles then BNS.Vehicles.onMaterialise(zombie, brain, rec) end
@@ -180,14 +183,8 @@ BNS.Spawner.SPAWN_MIN = 70   -- tiles from the player to start looking
 BNS.Spawner.SPAWN_STEP = 25  -- how much further out each attempt goes
 BNS.Spawner.SPAWN_TRIES = 12
 
--- Bandits come in groups, always. A lone one is the *survivor* of a
--- group, not how they arrive: the desperate travel in pairs, thugs run
--- with a crew, and militia move as a fire team.
-BNS.Spawner.SquadSize = {
-    [BNS.Tier.CIVILIAN] = { 2, 3 },
-    [BNS.Tier.THUG]     = { 2, 4 },
-    [BNS.Tier.MILITIA]  = { 3, 5 },
-}
+-- Bandits come in groups, always, and the same size of group whoever
+-- they are. A lone one is the *survivor* of a group, not how they arrive.
 
 -- Scatter a squad member around the picked point without letting them
 -- drift onto streamed ground: the picked square being unloaded says
@@ -229,8 +226,7 @@ function BNS.Spawner.spawnBanditNear(player)
     -- in state.squads, which is what marks it as one BNS_Squads keeps
     -- together -- garrisons and raid parties deliberately have neither,
     -- because they already have somewhere to be.
-    local size = BNS.Spawner.SquadSize[tier] or BNS.Spawner.SquadSize[BNS.Tier.CIVILIAN]
-    local squadSize = ZombRand(size[1], size[2] + 1)
+    local squadSize = ZombRand(BNS.Behaviour.squadMin, BNS.Behaviour.squadMax + 1)
     local squadId = "squad_" .. tostring(ZombRand(1000000))
     BNS.Squads.create(BNS.Persistence.getState(), squadId, x, y)
     local made = 0
