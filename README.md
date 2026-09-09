@@ -199,6 +199,13 @@ Non-admin requests are dropped and logged.
   table if a gun feels wrong. The reload has no sound of its own, because
   a sound name cannot be verified offline; the tell is the weapon coming
   down, the callout, and the bandit giving ground.
+- **Bandits come in groups and stay in them.** Nobody arrives alone —
+  the desperate travel in pairs, thugs run with a crew of two to four,
+  militia move as a fire team of three to five — and the group holds
+  together within about twenty tiles whether you are watching or not.
+  They mill around each other, and when one of them decides it is time to
+  move on the whole group goes rather than one bandit wandering off. A
+  lone bandit is the *survivor* of a group, not how they arrive.
 - **NPCs are found, not conjured.** New ones are created out in the
   unloaded world and only take a body when the ground they are standing
   on streams in, so nobody ever pops into existence in front of you —

@@ -392,6 +392,10 @@ function BNS.DebugUI:rebuildList()
             local flags = ""
             if npc.vehicle then flags = flags .. " [car]" end
             if npc.door then flags = flags .. " [door]" end
+            if npc.fromSquad then
+                flags = flags .. (npc.fromSquad > 20 and " [STRAY " or " [sq ")
+                    .. npc.fromSquad .. "]"
+            end
             if npc.grabbed then flags = flags .. " [grabbed]" end
             if npc.warned then flags = flags .. " [warned]" end
             if npc.reloading then flags = flags .. " [reloading]"

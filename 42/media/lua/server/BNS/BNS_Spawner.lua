@@ -13,6 +13,7 @@ require "BNS/BNS_Core"
 require "BNS/BNS_Loadouts"
 require "BNS/BNS_Archetypes"
 require "BNS/BNS_Persistence"
+require "BNS/BNS_Squads"
 require "BNS/BNS_Anim"
 require "BNS/BNS_Look"
 
@@ -179,6 +180,15 @@ BNS.Spawner.SPAWN_MIN = 70   -- tiles from the player to start looking
 BNS.Spawner.SPAWN_STEP = 25  -- how much further out each attempt goes
 BNS.Spawner.SPAWN_TRIES = 12
 
+-- Bandits come in groups, always. A lone one is the *survivor* of a
+-- group, not how they arrive: the desperate travel in pairs, thugs run
+-- with a crew, and militia move as a fire team.
+BNS.Spawner.SquadSize = {
+    [BNS.Tier.CIVILIAN] = { 2, 3 },
+    [BNS.Tier.THUG]     = { 2, 4 },
+    [BNS.Tier.MILITIA]  = { 3, 5 },
+}
+
 -- Scatter a squad member around the picked point without letting them
 -- drift onto streamed ground: the picked square being unloaded says
 -- nothing about the one two tiles east of it, and the guarantee is per
@@ -215,15 +225,15 @@ function BNS.Spawner.spawnBanditNear(player)
     local archetype = BNS.Archetypes.roll(x, y)
     local def = BNS.Archetypes.get(archetype)
     local tier = def and def.tier or BNS.Tier.CIVILIAN
-    local squadSize = 1
-    local squadId = nil
-    if tier == BNS.Tier.MILITIA then
-        squadSize = ZombRand(2, 5)
-        squadId = "squad_" .. tostring(ZombRand(100000))
-    elseif tier == BNS.Tier.THUG and ZombRand(100) < 40 then
-        squadSize = 2
-        squadId = "squad_" .. tostring(ZombRand(100000))
-    end
+    -- Bandits travel together. Every group gets a squad id and an entry
+    -- in state.squads, which is what marks it as one BNS_Squads keeps
+    -- together -- garrisons and raid parties deliberately have neither,
+    -- because they already have somewhere to be.
+    local size = BNS.Spawner.SquadSize[tier] or BNS.Spawner.SquadSize[BNS.Tier.CIVILIAN]
+    local squadSize = ZombRand(size[1], size[2] + 1)
+    local squadId = "squad_" .. tostring(ZombRand(1000000))
+    BNS.Squads.create(BNS.Persistence.getState(), squadId, x, y)
+    local made = 0
     for i = 1, squadSize do
         -- Checked per member, not per group: a squad of five must not be
         -- able to walk the record pool past its ceiling in one call.
@@ -233,12 +243,19 @@ function BNS.Spawner.spawnBanditNear(player)
         rec.squad = squadId
         rec.archetype = archetype
         rec.weapon = BNS.Spawner.rollWeapon(tier, archetype)
+        made = made + 1
         -- Deliberately not materialised here: the square is unloaded by
         -- construction, and the boundary gives them a body when the
         -- player reaches them.
     end
+    if made == 0 then
+        -- The ceiling stopped every member: do not leave an empty squad
+        -- behind for the anchor pass to carry around the map.
+        BNS.Persistence.getState().squads[squadId] = nil
+        return
+    end
     BNS.log("spawned bandit group archetype=" .. archetype .. " tier=" .. tier
-        .. " size=" .. squadSize .. " at " .. x .. "," .. y)
+        .. " size=" .. made .. " at " .. x .. "," .. y)
 end
 
 -- Spawn a neutral survivor or trader near the player.

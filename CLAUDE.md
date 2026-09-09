@@ -156,6 +156,21 @@ See README.md for the feature list and the code-layout map. Key facts:
   no longer throttles creation, so `BNS.recordCeiling()`
   (`maxLive * BNS.VirtualPool`) bounds the record pool and is checked per
   *record*, not per group.
+- **Bandits arrive as a group and stay one — on both sides of the
+  boundary.** `BNS_Squads` owns it. A squad is *managed* exactly when it
+  has an entry in `state.squads`: wandering bandit groups get one at
+  spawn, POI garrisons and raid parties deliberately do not, because they
+  already have somewhere to be. The anchor follows its live members and
+  carries its virtual ones — stepping records one at a time off-screen is
+  what pulled squads across the map within a few in-game hours, so the
+  player met the survivors of a group one at a time, which looks exactly
+  like bandits spawning alone. Cohesion is mostly *where they choose to
+  go*: `wanderTarget` picks milling destinations inside the group's
+  bubble, and only pulls someone back when they are past `COHESION`
+  (returning them to `REGROUP`, not to the edge). Each member's place in
+  the formation is derived from their record id, so it is stable and no
+  two stand on the same tile. An emptied squad is dropped, or the anchor
+  pass carries a group of nobody around for the rest of the save.
 - Persistent NPC state lives in global mod data (`BNS_Persistence.lua`);
   never store Java object references in mod data — keep live refs in
   module-local tables (see `BNS.ZombieThreat.targets`).

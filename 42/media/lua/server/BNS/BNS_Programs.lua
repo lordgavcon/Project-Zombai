@@ -12,6 +12,7 @@ require "BNS/BNS_Core"
 require "BNS/BNS_Archetypes"
 require "BNS/BNS_Combat"
 require "BNS/BNS_Anim"
+require "BNS/BNS_Squads"
 
 BNS.Programs = {}
 
@@ -177,10 +178,12 @@ BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
         brain.program = BNS.Program.APPROACH
         return
     end
-    -- Mid-rest: stand still and look around.
+    -- Mid-rest: stand still and look around. Not while the group has
+    -- left them behind, though -- catching up comes first.
     if brain.restUntil then
         brain.restUntil = brain.restUntil - 1
-        if brain.restUntil > 0 and not threatened(zombie, brain, ctx) then
+        if brain.restUntil > 0 and not threatened(zombie, brain, ctx)
+                and not BNS.Squads.strayed(brain, zombie:getX(), zombie:getY()) then
             BNS.Programs.stopMoving(zombie, brain, "idle")
             return
         end
@@ -195,19 +198,42 @@ BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
     if BNS.Vehicles and not brain.vehicle and ZombRand(600) == 0 then
         BNS.Vehicles.tryClaim(zombie, brain)
     end
+    -- Someone in the group decides it is time to move on, and then the
+    -- whole group goes -- rather than one bandit wandering off alone.
+    local x, y = zombie:getX(), zombie:getY()
+    BNS.Squads.arrived(brain, x, y)
+    BNS.Squads.maybeTrek(brain)
+
     if arrived(zombie, brain, 3) then
         -- Arrived: usually take a breather before choosing somewhere new.
-        if not threatened(zombie, brain, ctx)
+        local sx, sy, urgent = BNS.Squads.wanderTarget(brain, x, y)
+        if not urgent and not threatened(zombie, brain, ctx)
                 and ZombRand(100) < BNS.Programs.REST_CHANCE then
             brain.restUntil = ZombRand(BNS.Programs.REST_MIN, BNS.Programs.REST_MAX)
             brain.targetX, brain.targetY = nil, nil
             BNS.Programs.stopMoving(zombie, brain, "idle")
             return
         end
-        -- Pick a new destination: nearby drift, occasionally a long trek.
-        local reach = ZombRand(100) < 10 and 200 or 30
-        brain.targetX = zombie:getX() + ZombRand(-reach, reach + 1)
-        brain.targetY = zombie:getY() + ZombRand(-reach, reach + 1)
+        if sx then
+            -- In a squad: destinations come from the group's bubble, so
+            -- staying together is where they choose to go rather than a
+            -- correction dragged out of them afterwards.
+            brain.targetX, brain.targetY = sx, sy
+        else
+            -- Alone: nearby drift, occasionally a long trek.
+            local reach = ZombRand(100) < 10 and 200 or 30
+            brain.targetX = x + ZombRand(-reach, reach + 1)
+            brain.targetY = y + ZombRand(-reach, reach + 1)
+        end
+    elseif BNS.Squads.strayed(brain, x, y) then
+        -- Wandered out of the group's reach part way to somewhere else.
+        -- Abandon that errand and rejoin: a bandit alone in the open is
+        -- not what a squad is for.
+        local sx, sy = BNS.Squads.wanderTarget(brain, x, y)
+        if sx then
+            brain.targetX, brain.targetY = sx, sy
+            brain.restUntil = nil
+        end
     end
     BNS.Programs.walkTo(zombie, brain.targetX, brain.targetY, 0, false)
 end

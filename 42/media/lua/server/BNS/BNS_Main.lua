@@ -14,6 +14,7 @@ if isClient() then return end
 require "BNS/BNS_Core"
 require "BNS/BNS_Persistence"
 require "BNS/BNS_Spawner"
+require "BNS/BNS_Squads"
 require "BNS/BNS_Brain"
 require "BNS/BNS_Bases"
 require "BNS/BNS_Raids"
@@ -73,6 +74,11 @@ end
 
 function BNS.Main.boundaryTick()
     local state = BNS.Persistence.getState()
+
+    -- Re-centre every squad on its members and walk the ones with nobody
+    -- in the loaded world onward, before any record is stepped: the
+    -- anchor is what virtual members are then placed around.
+    BNS.Squads.tick(state)
 
     -- Hand back the body of any shell whose ground has gone -- either it
     -- has been left far behind, or the chunk under it unloaded. Doing the

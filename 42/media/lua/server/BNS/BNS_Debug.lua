@@ -21,6 +21,7 @@ require "BNS/BNS_Archetypes"
 require "BNS/BNS_POIs"
 require "BNS/BNS_Persistence"
 require "BNS/BNS_Spawner"
+require "BNS/BNS_Squads"
 require "BNS/BNS_Programs"
 require "BNS/BNS_Combat"
 require "BNS/BNS_Look"
@@ -127,6 +128,14 @@ function BNS.Debug.snapshot(player)
             stock = (brain and brain.stock and #brain.stock) or (rec.stock and #rec.stock) or 0,
             vehicle = (brain and brain.vehicle ~= nil) or (rec.vehicle ~= nil),
             squad = rec.squad,
+            -- How far this one is from its group. A squad that is doing
+            -- its job keeps every member inside BNS.Squads.COHESION.
+            fromSquad = (function()
+                if not rec.squad then return nil end
+                local ax, ay = BNS.Squads.anchor(rec.squad)
+                if not ax then return nil end
+                return math.floor(BNS.dist(x, y, ax, ay))
+            end)(),
             weapon = rec.weapon and rec.weapon.item or nil,
             gun = rec.weapon and rec.weapon.gun or false,
             warned = brain and brain.warned or false,
@@ -626,6 +635,38 @@ BNS.Debug.Scenarios = {
                 end
             end
             for _, line in ipairs(BNS.Look.report()) do note(player, "  " .. line) end
+        end,
+    },
+    squads = {
+        label = "Squad cohesion",
+        watch = "every bandit group, its spread, and anyone who has "
+            .. "wandered further than the cohesion distance from it. A "
+            .. "member out past it should be walking back, not away",
+        run = function(player)
+            local state = BNS.Persistence.getState()
+            local groups = {}
+            for _, rec in pairs(state.npcs) do
+                if rec.squad and BNS.Squads.get(rec.squad) then
+                    local g = groups[rec.squad] or { n = 0, out = 0, worst = 0, live = 0 }
+                    local ax, ay = BNS.Squads.anchor(rec.squad)
+                    local d = BNS.dist(rec.x, rec.y, ax, ay)
+                    g.n = g.n + 1
+                    if rec.live then g.live = g.live + 1 end
+                    if d > BNS.Squads.COHESION then g.out = g.out + 1 end
+                    g.worst = math.max(g.worst, d)
+                    groups[rec.squad] = g
+                end
+            end
+            local names = {}
+            for id in pairs(groups) do table.insert(names, id) end
+            table.sort(names)
+            if #names == 0 then note(player, "no managed squads right now") return end
+            for _, id in ipairs(names) do
+                local g = groups[id]
+                note(player, string.format(
+                    "%s: %d members (%d live), furthest %d tiles out, %d beyond %d",
+                    id, g.n, g.live, math.floor(g.worst), g.out, BNS.Squads.COHESION))
+            end
         end,
     },
     virtual = {
