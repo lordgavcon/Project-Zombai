@@ -116,6 +116,13 @@ function BNS.Debug.snapshot(player)
             x = math.floor(x), y = math.floor(y),
             dist = math.floor(BNS.dist(px, py, x, y)),
             live = shell ~= nil,
+            -- Why a record has no body: standing on ground the game has
+            -- not streamed, waiting for a slot, or failing to embody
+            -- where it stands. A virtual NPC that is none of these and
+            -- stays virtual is the bug this replaced.
+            onLoaded = shell == nil and BNS.squareLoaded(x, y, rec.z) or false,
+            capped = rec.capped or false,
+            wakeFails = rec.wakeFails or 0,
             loot = (brain and brain.loot and #brain.loot) or (rec.loot and #rec.loot) or 0,
             stock = (brain and brain.stock and #brain.stock) or (rec.stock and #rec.stock) or 0,
             vehicle = (brain and brain.vehicle ~= nil) or (rec.vehicle ~= nil),
@@ -619,6 +626,28 @@ BNS.Debug.Scenarios = {
                 end
             end
             for _, line in ipairs(BNS.Look.report()) do note(player, "  " .. line) end
+        end,
+    },
+    virtual = {
+        label = "Virtual boundary",
+        watch = "every NPC out there and why it has or has not got a body. "
+            .. "Walk towards a [virtual] one: it should become live as soon "
+            .. "as its square streams in, and go back to [virtual] behind you",
+        run = function(player)
+            local state = BNS.Persistence.getState()
+            local live, waiting, offmap, capped = 0, 0, 0, 0
+            for _, rec in pairs(state.npcs) do
+                if rec.live then live = live + 1
+                elseif rec.capped then capped = capped + 1
+                elseif BNS.squareLoaded(rec.x, rec.y, rec.z) then waiting = waiting + 1
+                else offmap = offmap + 1 end
+            end
+            note(player, string.format(
+                "%d live, %d off the loaded map, %d on loaded ground waiting to embody, "
+                    .. "%d held back by the cap (ceiling %d)",
+                live, offmap, waiting, capped, BNS.recordCeiling()))
+            note(player, "a record on loaded ground should not stay waiting: "
+                .. "that is the failure this boundary replaced")
         end,
     },
     standoff = {

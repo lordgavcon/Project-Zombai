@@ -160,16 +160,47 @@ end
 -- Fresh spawns ----------------------------------------------------------
 
 -- Find an off-screen square near (but not on top of) a player.
+-- Where a *new* NPC comes into the world.
+--
+-- Never on ground the player has streamed in: an NPC that pops into
+-- existence inside the loaded area can appear in front of you, and at 40
+-- tiles in an open field that is on screen. They are created as records
+-- out in the unloaded world instead, and get a body only when you walk
+-- far enough that their square loads (BNS.Main.boundaryTick) -- so they
+-- are always found rather than conjured.
+--
+-- The band is not a guess at how much the game streams: each attempt
+-- steps further out and the loop keeps going until it finds ground the
+-- engine has *not* loaded, so it is correct whatever the streaming
+-- distance turns out to be. Nothing about the square can be checked
+-- (there is no square to check), which is fine -- materialise validates
+-- it later, and a record that cannot be embodied where it stands moves on.
+BNS.Spawner.SPAWN_MIN = 70   -- tiles from the player to start looking
+BNS.Spawner.SPAWN_STEP = 25  -- how much further out each attempt goes
+BNS.Spawner.SPAWN_TRIES = 12
+
+-- Scatter a squad member around the picked point without letting them
+-- drift onto streamed ground: the picked square being unloaded says
+-- nothing about the one two tiles east of it, and the guarantee is per
+-- NPC, not per group.
+function BNS.Spawner.scatter(x, y)
+    for _ = 1, 6 do
+        local sx = x + ZombRand(-2, 3)
+        local sy = y + ZombRand(-2, 3)
+        if not BNS.squareLoaded(sx, sy, 0) then return sx, sy end
+    end
+    return x, y -- the picked square itself is known good
+end
+
 local function pickSpawnSquare(player)
-    for _ = 1, 10 do
+    for attempt = 1, BNS.Spawner.SPAWN_TRIES do
         local angle = ZombRandFloat(0, 2 * math.pi)
-        local distArea = ZombRand(40, 80)
-        local x = math.floor(player:getX() + math.cos(angle) * distArea)
-        local y = math.floor(player:getY() + math.sin(angle) * distArea)
-        local sq = getCell():getGridSquare(x, y, 0)
-        if sq and sq:isFree(false) and not sq:isSolidTrans() then
-            return x, y
-        end
+        local reach = BNS.Spawner.SPAWN_MIN
+            + (attempt - 1) * BNS.Spawner.SPAWN_STEP
+            + ZombRand(BNS.Spawner.SPAWN_STEP)
+        local x = math.floor(player:getX() + math.cos(angle) * reach)
+        local y = math.floor(player:getY() + math.sin(angle) * reach)
+        if not BNS.squareLoaded(x, y, 0) then return x, y end
     end
     return nil
 end
@@ -194,11 +225,17 @@ function BNS.Spawner.spawnBanditNear(player)
         squadId = "squad_" .. tostring(ZombRand(100000))
     end
     for i = 1, squadSize do
-        local rec = BNS.Persistence.newRecord(BNS.Role.BANDIT, tier, x + ZombRand(-2, 3), y + ZombRand(-2, 3), 0)
+        -- Checked per member, not per group: a squad of five must not be
+        -- able to walk the record pool past its ceiling in one call.
+        if BNS.Persistence.count() >= BNS.recordCeiling() then break end
+        local sx, sy = BNS.Spawner.scatter(x, y)
+        local rec = BNS.Persistence.newRecord(BNS.Role.BANDIT, tier, sx, sy, 0)
         rec.squad = squadId
         rec.archetype = archetype
         rec.weapon = BNS.Spawner.rollWeapon(tier, archetype)
-        BNS.Spawner.materialise(rec)
+        -- Deliberately not materialised here: the square is unloaded by
+        -- construction, and the boundary gives them a body when the
+        -- player reaches them.
     end
     BNS.log("spawned bandit group archetype=" .. archetype .. " tier=" .. tier
         .. " size=" .. squadSize .. " at " .. x .. "," .. y)
@@ -206,6 +243,7 @@ end
 
 -- Spawn a neutral survivor or trader near the player.
 function BNS.Spawner.spawnSurvivorNear(player)
+    if BNS.Persistence.count() >= BNS.recordCeiling() then return end
     local x, y = pickSpawnSquare(player)
     if not x then return end
     local opts = BNS.Options()
@@ -221,7 +259,8 @@ function BNS.Spawner.spawnSurvivorNear(player)
             end
         end
     end
-    BNS.Spawner.materialise(rec)
+    -- Virtual by construction, like bandits: the square is unloaded, and
+    -- the boundary embodies them when the player gets there.
     BNS.log("spawned " .. role .. " at " .. x .. "," .. y)
 end
 

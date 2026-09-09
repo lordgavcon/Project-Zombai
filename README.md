@@ -199,6 +199,15 @@ Non-admin requests are dropped and logged.
   table if a gun feels wrong. The reload has no sound of its own, because
   a sound name cannot be verified offline; the tell is the weapon coming
   down, the callout, and the bandit giving ground.
+- **NPCs are found, not conjured.** New ones are created out in the
+  unloaded world and only take a body when the ground they are standing
+  on streams in, so nobody ever pops into existence in front of you —
+  walk far enough and the NPC who was already "there" becomes real. They
+  hand the body back when that ground goes, keeping the position they had
+  walked to. (Previously the wake-up used a radius around the player,
+  which is not the same shape as the loaded world: an NPC that drifted
+  into the gap between the two was never embodied and never moved again
+  for the rest of the save.)
 - **NPC shells are held out of the engine's own zombie behaviour at
   contact range.** Clearing a shell's target cannot win that race — the
   engine re-acquires inside the same update — so while an NPC is stood

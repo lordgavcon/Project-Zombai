@@ -404,7 +404,14 @@ function BNS.DebugUI:rebuildList()
             if npc.stamina and npc.stamina < 0.6 then
                 flags = flags .. string.format(" [winded %d%%]", math.floor(npc.stamina * 100))
             end
-            if not npc.live then flags = flags .. " [virtual]" end
+            if not npc.live then
+                if npc.capped then flags = flags .. " [virtual/capped]"
+                elseif npc.onLoaded then flags = flags .. " [virtual/WAITING]"
+                else flags = flags .. " [virtual]" end
+                if (npc.wakeFails or 0) > 0 then
+                    flags = flags .. " [wake x" .. npc.wakeFails .. "]"
+                end
+            end
             local text = string.format("%-16s %-11s %-11s hp%3d%% %4dm  pack %d%s",
                 npc.name or "?", npc.archetype or npc.role, npc.program or "?",
                 math.floor((npc.health or 1) * 100), npc.dist, npc.loot, flags)

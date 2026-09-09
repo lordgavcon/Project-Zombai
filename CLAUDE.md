@@ -131,6 +131,31 @@ See README.md for the feature list and the code-layout map. Key facts:
   on a guess and are off — a parked character cannot walk, which is what
   "bandits don't walk around" looked like. Both are switchable from the
   Anim lab so the question gets answered in game.
+- **The live/virtual boundary is the loaded world, not a radius.**
+  `BNS.squareLoaded` is the only honest answer to "can an NPC exist
+  here", and `BNS.Main.boundaryTick` is built on it: a record gets a body
+  exactly when the square under it is streamed in, and gives it back when
+  that stops being true (which also captures the position a shell had
+  actually walked to, instead of losing it to the chunk unloading). A
+  radius was the old rule and it was the bug — the streamed area is
+  neither round nor a fixed size, so records could sit *inside* the wake
+  radius on unloaded ground, and the old code only stepped records
+  *outside* it: embodied never, moved never, for the rest of the save.
+  Every branch must therefore either embody a record or move it on;
+  `WAKE_FAILS` covers loaded ground that will not take a body, and the
+  population cap is the one case that deliberately leaves a record
+  standing (stepping it would slide an NPC across the street you are in).
+  The boundary runs on `EveryOneMinute`, not the ten-minute director tick.
+- **New NPCs are created virtual, outside the loaded world.** An NPC that
+  appears inside the streamed area can pop in in front of you.
+  `pickSpawnSquare` steps outward until it finds ground the engine has
+  *not* loaded — it does not guess a streaming distance — and
+  `BNS.Spawner.scatter` re-checks each squad member, because the picked
+  square being unloaded says nothing about the one two tiles east.
+  Nothing calls `materialise` at spawn any more. That means the live cap
+  no longer throttles creation, so `BNS.recordCeiling()`
+  (`maxLive * BNS.VirtualPool`) bounds the record pool and is checked per
+  *record*, not per group.
 - Persistent NPC state lives in global mod data (`BNS_Persistence.lua`);
   never store Java object references in mod data — keep live refs in
   module-local tables (see `BNS.ZombieThreat.targets`).

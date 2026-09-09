@@ -144,6 +144,39 @@ function BNS.getPlayers()
     return out
 end
 
+-- How many NPC records may exist at once.
+--
+-- New NPCs are created *virtual*, out in the unloaded world, so the live
+-- cap no longer throttles how many exist -- it only throttles how many
+-- have bodies. Without its own ceiling the pool would grow by one every
+-- ten minutes for the life of the save, none of them counted against
+-- anything. Several times the live cap leaves room for the walking-around
+-- population that makes meeting the same scavenger two towns over
+-- possible.
+BNS.VirtualPool = 3 -- total records allowed, as a multiple of maxLive
+
+function BNS.recordCeiling()
+    return (BNS.Options().maxLive or 20) * BNS.VirtualPool
+end
+
+-- Is the world actually streamed in at this point?
+--
+-- This is the only honest answer to "can an NPC exist here", and it is
+-- what the live/virtual boundary is built on. A radius around the player
+-- is *not* the same thing: the streamed area is neither round nor a fixed
+-- size, so a record could sit inside a generous radius while the square
+-- under it stayed unloaded -- close enough that BNS thought it should be
+-- awake, too far for the engine to give it a body. Records in that band
+-- were embodied never and stepped never: frozen for the rest of the save.
+function BNS.squareLoaded(x, y, z)
+    local cell = getCell()
+    if not cell then return false end
+    local ok, sq = pcall(function()
+        return cell:getGridSquare(math.floor(x), math.floor(y), math.floor(z or 0))
+    end)
+    return ok and sq ~= nil
+end
+
 function BNS.nearestPlayer(x, y)
     local best, bestD = nil, 999999
     for _, p in ipairs(BNS.getPlayers()) do
