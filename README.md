@@ -196,6 +196,14 @@ Non-admin requests are dropped and logged.
   table if a gun feels wrong. The reload has no sound of its own, because
   a sound name cannot be verified offline; the tell is the weapon coming
   down, the callout, and the bandit giving ground.
+- **NPC shells are kept out of the engine's ballistics path.** B42 gives a
+  character aiming a firearm a `BallisticsController` that reads the
+  *player* aiming reticle, indexed by player number — and a zombie's is
+  -1, so the moment a gun-carrying shell looks to the engine like it is
+  aiming, the game crashes to the desktop. BNS simulates every shot
+  itself and never sets an engine combat-action flag on a shell;
+  `BNS.Combat.disarmBallistics` clears any controller one picks up anyway.
+  If you add engine calls to the shells, keep to animation *variables*.
 - **Shell suppression is deliberately minimal.** `BNS.Suppress` in
   `BNS_Core.lua` gates the calls that stop a shell behaving like a zombie.
   Only clearing its target is on by default — `setUseless` and

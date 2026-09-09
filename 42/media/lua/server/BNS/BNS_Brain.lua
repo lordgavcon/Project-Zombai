@@ -72,6 +72,10 @@ local function suppressZombie(zombie, brain)
     end
     if zombie.setAttackedBy then zombie:setAttackedBy(nil) end
     if zombie.setThumpTarget then pcall(function() zombie:setThumpTarget(nil) end) end
+    -- A shell carrying a firearm must never look to the engine like it is
+    -- aiming one: that path reads the player's aiming reticle, and a
+    -- zombie has no player index. It crashed the game once already.
+    BNS.Combat.disarmBallistics(zombie)
     -- Already in one: count it so the debug probe can say whether any of
     -- this is working, and put the shell back under our own orders.
     if urgent and inZombieState(zombie) then

@@ -305,42 +305,102 @@ print("line of sight OK")
 -- 8. Gunners shove what is in their face, and keep their distance -----------------------
 -- A zombie's answer to someone stood on top of it is a lunge. A gunner's
 -- is to push them off and bring the weapon back up.
-BNS.Combat.shoveProbe = nil
 BNS.Combat.flagProbe = {}
+BNS.Combat.setterProbe = {}
 local sb = newBrain(pistol)
 sb.ammo = BNS.Combat.gunProfile(sb)
 local standoff = makeNPC(sb, 20, 20)
 local rusher = makePlayer(21, 20) -- right on top of them
-local shoved = { staggered = false, pushAnim = false }
+local shoved = { staggered = false }
 function rusher:setStaggerBack(v) shoved.staggered = v end
-function standoff:setPerformingShoveAnimation(v) shoved.pushAnim = v end
+-- The engine's own shove is NEVER used: setPerformingShoveAnimation puts
+-- a firearm-carrying shell into the ballistics path, which reads the
+-- player aiming reticle, indexes it at -1 for a zombie, and takes the
+-- game down. If this is ever called again, this test fails.
+function standoff:setPerformingShoveAnimation()
+    error("setPerformingShoveAnimation crashes the game on a shell")
+end
+function standoff:setPerformingAttackAnimation()
+    error("engine combat-action flags crash the game on a shell")
+end
 local healthBefore = #rusher.hits
 
 BNS.Programs[BNS.Program.ATTACK](standoff, sb, { player = rusher, dist = 1 })
-assert(shoved.pushAnim, "they play the engine's shove, not a zombie lunge")
+assert(standoff.vars.BNSAnim == "swing", "the push plays a BNS clip of our own")
 assert(shoved.staggered, "and the player is staggered by it")
 assert(#rusher.hits == healthBefore, "a shove does them no damage, both ways round")
 assert(sb.shoveTimer > 0, "with a cooldown, so it is not a stun-lock")
 
 -- On cooldown they open the range instead of standing there.
-shoved.pushAnim = false
 standoff.pathedTo = nil
+local pushes = sb.shoveTimer
 BNS.Programs[BNS.Program.ATTACK](standoff, sb, { player = rusher, dist = 1 })
-assert(not shoved.pushAnim, "no second shove while it is on cooldown")
+assert(sb.shoveTimer <= pushes, "no second shove while it is on cooldown")
 assert(standoff.pathedTo, "they give ground instead")
 
 -- Further out but still inside the standoff band: back away, don't shove.
 sb.shoveTimer = 0
 standoff.pathedTo = nil
-shoved.pushAnim = false
 local closer = makePlayer(22, 20)
 BNS.Programs[BNS.Program.ATTACK](standoff, sb, { player = closer, dist = 2.5 })
-assert(not shoved.pushAnim, "past arm's length they do not shove")
+assert(sb.shoveTimer == 0, "past arm's length they do not shove")
 assert(standoff.pathedTo, "they move")
 assert(BNS.dist(standoff.pathedTo[1], standoff.pathedTo[2], closer.x, closer.y)
     > BNS.dist(standoff.x, standoff.y, closer.x, closer.y),
     "opening the range rather than closing it")
+
+-- A setter is not a getter. BNS.Combat.flag calls with no arguments, so
+-- pointing it at a setter threw a Kahlua stack trace per shove and then
+-- reported a perfectly good method as "unusable on this build".
+BNS.Combat.setterProbe = {}
+local strict = {}
+local got = nil
+function strict:setStaggerBack(v)
+    if v == nil then error("expected 1 argument, got 0") end
+    got = v
+end
+assert(BNS.Combat.applyFlag(strict, "setStaggerBack", true), "the setter is called")
+assert(got == true, "with its argument, got " .. tostring(got))
+assert(not BNS.Combat.applyFlag(strict, "notAMethod", true), "a missing method is a no")
+
+local throws, calls = {}, 0
+function throws:setBumpDone() calls = calls + 1; error("no such signature") end
+for _ = 1, 50 do BNS.Combat.applyFlag(throws, "setBumpDone", false) end
+assert(calls == 1, "a setter that throws is called once, got " .. calls)
+BNS.Combat.setterProbe = {}
 print("gunner shove and standoff OK")
+
+-- A shell must never look to the engine like it is aiming a firearm ------------------
+-- This is the crash: B42 gives an aiming character a BallisticsController,
+-- that controller reads the player aiming reticle, and a zombie's player
+-- index is -1 -- ArrayIndexOutOfBoundsException, straight to the desktop.
+BNS.Combat.setterProbe = {}
+local armed = makeNPC(newBrain(pistol), 0, 0)
+local state = { aiming = true, controller = {}, target = {} }
+function armed:isAiming() return state.aiming end
+function armed:setIsAiming(v) state.aiming = v end
+function armed:getBallisticsController() return state.controller end
+function armed:releaseBallisticsController() state.controller = nil end
+function armed:getBallisticsTarget() return state.target end
+function armed:releaseBallisticsTarget() state.target = nil end
+
+BNS.Combat.disarmBallistics(armed)
+assert(state.aiming == false, "a shell is never left aiming a firearm")
+assert(state.controller == nil, "its ballistics controller is released")
+assert(state.target == nil, "and so is its ballistics target")
+
+-- Nothing to clear means nothing is called.
+local touched = 0
+function armed:releaseBallisticsController() touched = touched + 1 end
+function armed:releaseBallisticsTarget() touched = touched + 1 end
+BNS.Combat.disarmBallistics(armed)
+assert(touched == 0, "an already-clear shell is left alone, got " .. touched)
+
+-- A build without any of it is not punished for it.
+BNS.Combat.setterProbe = {}
+local bare = makeNPC(newBrain(pistol), 0, 0)
+BNS.Combat.disarmBallistics(bare) -- must not throw
+print("ballistics guard OK")
 
 -- 9. Attack speed is one knob over every interval ---------------------------------------
 -- The sandbox default is half speed: NPCs swing and shoot at half the

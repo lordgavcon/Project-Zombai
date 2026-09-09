@@ -86,11 +86,28 @@ See README.md for the feature list and the code-layout map. Key facts:
   vanilla get-up. Add those states to `tools/gen_animsets.lua` only once
   the clip names are read off a real install.
 - **A gunner's answer to someone in their face is a shove, not a lunge.**
-  `BNS.Combat.shove` uses the engine's own `setPerformingShoveAnimation`
-  precisely because that is a *player* animation, falling back to the
-  swing clip where the build lacks it. It does no damage, symmetrically
-  with `receiveHit`: pushing is not attacking in either direction. Inside
-  `SHOVE_RANGE` the ATTACK program shoves; on cooldown it gives ground.
+  `BNS.Combat.shove` plays BNS's *own* clip. It does no damage,
+  symmetrically with `receiveHit`: pushing is not attacking in either
+  direction. Inside `SHOVE_RANGE` the ATTACK program shoves; on cooldown
+  it gives ground.
+- **Never hand a shell an engine combat-action flag.**
+  `setPerformingShoveAnimation(true)` crashed the game to the desktop:
+  it puts the shell into an engine combat action, and a shell holding a
+  firearm then enters the *player-only* ballistics path —
+  `updateBallistics` → `BallisticsController.update` →
+  `AimingReticle.getX` → `Core.getZoom(-1)` →
+  `ArrayIndexOutOfBoundsException`. The reticle is player **input** UI,
+  indexed by player number, and a zombie's is -1. The same reasoning bars
+  `setPerformingAttackAnimation` and anything else that makes the engine
+  run a character's own combat code: BNS simulates attacks itself, and the
+  shell must only ever be given animation *variables*.
+  `BNS.Combat.disarmBallistics` (run from the suppression pass) is the
+  standing guard — it clears `isAiming` and releases any ballistics
+  controller or target the shell has picked up.
+- **`BNS.Combat.flag` is a getter probe; `applyFlag` is for setters.**
+  `flag` calls with no arguments, so pointing it at a setter throws, dumps
+  a Kahlua stack trace *and* then reports a working method as "unusable on
+  this build". That happened on every shove.
 - **Suppression must not park the shell.** `BNS.Suppress` (in
   `BNS_Core.lua`) gates the calls that stop a shell behaving like a
   zombie. Only `clearTarget` is on: it is what stops them lunging at

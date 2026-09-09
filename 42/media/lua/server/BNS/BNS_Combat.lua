@@ -201,6 +201,45 @@ function BNS.Combat.goDown(zombie, brain)
     brain.aimTicks = 0
 end
 
+-- Keep a shell out of the engine's ballistics path.
+--
+-- B42 gives a character aiming a firearm a BallisticsController, and that
+-- controller reads the *aiming reticle* -- player input UI, indexed by
+-- player number. A zombie's player number is -1, so the moment a shell
+-- with a gun is treated as aiming one, the next update indexes an array
+-- at -1 and the game goes to the desktop. Our NPCs carry real firearms
+-- and must never look like they are aiming one to the engine; BNS
+-- simulates the shot itself.
+--
+-- Inferred from the crash trace rather than verified, so it is guarded,
+-- presence-checked, and only acts when there is something to clear.
+function BNS.Combat.disarmBallistics(zombie)
+    if zombie.isAiming and zombie.setIsAiming then
+        local ok, aiming = pcall(function() return zombie:isAiming() end)
+        if ok and aiming then
+            BNS.Combat.applyFlag(zombie, "setIsAiming", false)
+        end
+    end
+    for _, pair in ipairs({
+        { "getBallisticsController", "releaseBallisticsController" },
+        { "getBallisticsTarget", "releaseBallisticsTarget" },
+    }) do
+        local getter, release = pair[1], pair[2]
+        if zombie[getter] and zombie[release]
+                and BNS.Combat.setterProbe[release] ~= false then
+            local ok, held = pcall(function() return zombie[getter](zombie) end)
+            if not ok then
+                BNS.Combat.setterProbe[release] = false
+            elseif held ~= nil then
+                if not pcall(function() zombie[release](zombie) end) then
+                    BNS.Combat.setterProbe[release] = false
+                    BNS.log("cannot release " .. getter .. " on this build")
+                end
+            end
+        end
+    end
+end
+
 function BNS.Combat.isStomp(attacker)
     return anyFlag(attacker, BNS.Combat.StompFlags)
 end
@@ -259,26 +298,48 @@ end
 -- zombie's answer to that range is a lunge; a person's is to push you off
 -- and bring the weapon back up, which is what this is.
 --
--- The animation is the engine's own shove (setPerformingShoveAnimation),
--- deliberately, because that is a *player* animation and the whole point
--- here is that a shell never plays a zombie one. Where the build does not
--- expose it, BNS falls back to pulsing its own swing clip -- still a
--- player clip, just not the right one.
+-- The animation is BNS's own clip, NOT the engine's shove.
+-- `setPerformingShoveAnimation(true)` was tried and **crashed the game**:
+-- it puts the shell into an engine combat action, and a shell holding a
+-- firearm then walks into the player-only ballistics path --
+-- updateBallistics -> BallisticsController.update -> AimingReticle.getX
+-- -> Core.getZoom(-1) -> ArrayIndexOutOfBoundsException, straight to the
+-- desktop. AimingReticle is player *input* UI and there is no player
+-- index for a zombie. Never hand a shell an engine combat-action flag.
 --
 -- It does no damage, on purpose and symmetrically with the rule for being
 -- shoved: pushing is not attacking.
 BNS.Combat.SHOVE_RANGE = 1.8   -- tiles; inside this a gunner pushes rather than shoots
 BNS.Combat.SHOVE_COOLDOWN = 90 -- engine ticks between pushes, before attack speed
-BNS.Combat.shoveProbe = nil    -- nil = untried, true = engine shove, false = fall back
 
--- Effects on the person being pushed, best-effort and each probed once:
--- a build that exposes none of them still gets the push animation and the
--- gunner still opens the range, it just does not stagger.
+-- Effects on the person being pushed, best-effort: a build that exposes
+-- none of them still sees the push and the gunner still opens the range,
+-- it just does not stagger.
 BNS.Combat.PushEffects = {
     { "setStaggerBack", true },
     { "setBumpStaggered", true },
     { "setBumpDone", false },
 }
+
+-- Call a one-argument setter once, remembering the ones this build will
+-- not take. Distinct from BNS.Combat.flag, which is a *getter* probe:
+-- using that on a setter calls it with no arguments, which throws, dumps
+-- a Kahlua stack trace and then reports a perfectly good method as
+-- "unusable on this build". That is exactly what it did.
+BNS.Combat.setterProbe = {}
+
+function BNS.Combat.applyFlag(obj, name, value)
+    if not obj or not obj[name] then return false end
+    if BNS.Combat.setterProbe[name] == false then return false end
+    local ok = pcall(function() obj[name](obj, value) end)
+    if not ok then
+        BNS.Combat.setterProbe[name] = false
+        BNS.log("'" .. name .. "(value)' unusable on this build")
+        return false
+    end
+    BNS.Combat.setterProbe[name] = true
+    return true
+end
 
 function BNS.Combat.canShove(brain)
     return (brain.shoveTimer or 0) <= 0
@@ -289,33 +350,21 @@ function BNS.Combat.shove(zombie, brain, target)
     brain.shoveTimer = BNS.Combat.interval(BNS.Combat.SHOVE_COOLDOWN)
     BNS.Combat.faceTarget(zombie, brain, target:getX(), target:getY(), true)
 
-    -- Push animation: the engine's, if it has one.
-    local played = false
-    if BNS.Combat.shoveProbe ~= false and zombie.setPerformingShoveAnimation then
-        local ok = pcall(function() zombie:setPerformingShoveAnimation(true) end)
-        if ok then
-            BNS.Combat.shoveProbe = true
-            played = true
-        else
-            BNS.Combat.shoveProbe = false
-            BNS.log("no engine shove animation on this build; using the swing clip")
-        end
-    end
-    if not played then
-        BNS.Anim.pulse(zombie, brain, "swing",
-            BNS.Combat.clipHold(brain.shoveTimer,
-                BNS.Combat.SHOT_HOLD_MIN, BNS.Combat.SWING_HOLD_MAX))
-    end
+    -- Our own clip, and only ever our own clip. See the note above: the
+    -- engine's shove takes a firearm-carrying shell into the ballistics
+    -- path and crashes the game.
+    BNS.Anim.pulse(zombie, brain, "swing",
+        BNS.Combat.clipHold(brain.shoveTimer,
+            BNS.Combat.SHOT_HOLD_MIN, BNS.Combat.SWING_HOLD_MAX))
 
     -- Stagger whoever was pushed. No damage: pushing is not attacking,
     -- the same way it is not when it is done to them.
     for _, effect in ipairs(BNS.Combat.PushEffects) do
-        local name, value = effect[1], effect[2]
-        if BNS.Combat.flag(target, name) ~= nil or target[name] then
-            pcall(function() target[name](target, value) end)
-        end
+        BNS.Combat.applyFlag(target, effect[1], effect[2])
     end
-    if zombie.setBumpedChr then pcall(function() target:setBumpedChr(zombie) end) end
+    if target.setBumpedChr then
+        pcall(function() target:setBumpedChr(zombie) end)
+    end
     return true
 end
 
