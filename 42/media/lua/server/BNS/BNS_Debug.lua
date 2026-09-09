@@ -130,6 +130,8 @@ function BNS.Debug.snapshot(player)
             swing = brain and brain.swingPhase or nil,
             down = brain and BNS.Combat.isDown(brain) or false,
             lunges = brain and brain.lunges or 0,
+            jams = brain and brain.zJams or 0,
+            held = brain and brain.stateLocked or false,
             grabbed = brain and brain.grabbedTimer ~= nil or false,
             door = brain and brain.door ~= nil or false,
             paths = brain and brain.pathCount or 0,
@@ -319,8 +321,10 @@ function BNS.Debug.animProbe(player, args)
     -- all) with a player close. Should stay at zero: anything else means
     -- the target suppression is losing the race and the player is seeing
     -- zombie behaviour.
-    note(player, string.format("  zombie states entered: %d (state now: %s)",
-        brain.lunges or 0, BNS.Combat.stateName(shell) or "?"))
+    note(player, string.format(
+        "  zombie states entered: %d, jammed: %d, machine held: %s (state now: %s)",
+        brain.lunges or 0, brain.zJams or 0, tostring(brain.stateLocked == true),
+        BNS.Combat.stateName(shell) or "?"))
     note(player, string.format("  path: hasPath=%s moving=%s target=%s,%s orders=%d lost=%d",
         readShell(shell, "hasPath") or "-",
         readShell(shell, "isMoving") or "-",
@@ -615,6 +619,25 @@ BNS.Debug.Scenarios = {
                 end
             end
             for _, line in ipairs(BNS.Look.report()) do note(player, "  " .. line) end
+        end,
+    },
+    standoff = {
+        label = "Melee standoff (hostile vs neutral)",
+        watch = "stand right against each of them. The bandit swings at "
+            .. "you; the survivor just stands there. Neither lunges, and "
+            .. "neither gets stuck in one -- PROBE should show 0 jammed",
+        run = function(player)
+            BNS.Debug.spawnNPC(player, { archetype = "thug", count = 1 })
+            local ids = BNS.Debug.spawnNPC(player, { role = BNS.Role.SURVIVOR, count = 1 })
+            for _, id in ipairs(ids or {}) do
+                local shell = BNS.Debug.findNPC(id)
+                if shell then
+                    local brain = BNS.brain(shell)
+                    brain.program = BNS.Program.TRADE
+                    note(player, "  " .. tostring(brain.name) .. " is a survivor: "
+                        .. "hostile=" .. tostring(BNS.isHostile(brain)))
+                end
+            end
         end,
     },
     muzzle = {

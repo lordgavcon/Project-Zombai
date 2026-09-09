@@ -251,6 +251,9 @@ function BNS.DebugUI:createChildren()
     table.insert(self.animButtons, addButton("clearTarget", 90, 3, 2, function()
         self:send("debugSuppress", { key = "clearTarget" })
     end))
+    table.insert(self.animButtons, addButton("lockState", 90, 4, 2, function()
+        self:send("debugSuppress", { key = "lockState" })
+    end))
 
     -- Scenario buttons
     self.scenarioButtons = {}
@@ -395,6 +398,8 @@ function BNS.DebugUI:rebuildList()
             elseif npc.ammo then flags = flags .. string.format(" [%d+%dmag]", npc.ammo, npc.mags or 0) end
             if npc.down then flags = flags .. " [DOWN]" end
             if (npc.lunges or 0) > 0 then flags = flags .. " [zed x" .. npc.lunges .. "]" end
+            if (npc.jams or 0) > 0 then flags = flags .. " [JAM x" .. npc.jams .. "]" end
+            if npc.held then flags = flags .. " [held]" end
             if npc.swing then flags = flags .. " [" .. npc.swing .. "]" end
             if npc.stamina and npc.stamina < 0.6 then
                 flags = flags .. string.format(" [winded %d%%]", math.floor(npc.stamina * 100))

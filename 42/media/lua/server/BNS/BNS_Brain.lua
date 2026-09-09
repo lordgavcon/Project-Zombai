@@ -54,9 +54,43 @@ local function inZombieState(zombie)
     return false
 end
 
-local function suppressZombie(zombie, brain)
+-- How long a shell may sit in a zombie state before BNS calls it jammed
+-- rather than animating. Any real lunge or thump is well under this.
+local ZSTATE_MAX = 90 -- engine ticks (1.5s)
+
+-- Public so the suite can drive the real thing: this is where the "stuck
+-- in a lunge" bug lived, and a test that reimplements the cadence instead
+-- of calling this would not have caught it.
+function BNS.Brain.suppress(zombie, brain)
     local _, dist = BNS.nearestPlayer(zombie:getX(), zombie:getY())
     local urgent = dist ~= nil and dist < LUNGE_GUARD
+
+    -- A shell carrying a firearm must never look to the engine like it is
+    -- aiming one: that path reads the player's aiming reticle, and a
+    -- zombie has no player index. It crashed the game once already, so
+    -- this runs before any early return below.
+    BNS.Combat.disarmBallistics(zombie)
+
+    -- Mid-lunge, the engine's state is *using* the target it acquired.
+    -- Tearing that out from under it every tick is what left shells
+    -- frozen in the lunge pose: the state could never reach its own end
+    -- condition, so it never released the animation. Let it run, and take
+    -- the target away the moment it is over -- the tick after a lunge is
+    -- also the tick before the next one.
+    if urgent and inZombieState(zombie) then
+        brain.zStateTicks = (brain.zStateTicks or 0) + 1
+        if brain.zStateTicks == 1 then brain.lunges = (brain.lunges or 0) + 1 end
+        if brain.zStateTicks < ZSTATE_MAX then return end
+        -- Outstayed any real animation: it is stuck, not playing. Break
+        -- it out rather than leaving an NPC posed forever, the same way
+        -- the downed state refuses to believe a flag past DOWN_MAX.
+        brain.zStateTicks = 0
+        brain.zJams = (brain.zJams or 0) + 1
+        BNS.Programs.stopMoving(zombie, brain, brain.animBase or "idle")
+    else
+        brain.zStateTicks = nil
+    end
+
     brain.suppressTick = (brain.suppressTick or ZombRand(SUPPRESS_EVERY)) - 1
     if not urgent and brain.suppressTick > 0 then return end
     brain.suppressTick = SUPPRESS_EVERY
@@ -72,20 +106,10 @@ local function suppressZombie(zombie, brain)
     end
     if zombie.setAttackedBy then zombie:setAttackedBy(nil) end
     if zombie.setThumpTarget then pcall(function() zombie:setThumpTarget(nil) end) end
-    -- A shell carrying a firearm must never look to the engine like it is
-    -- aiming one: that path reads the player's aiming reticle, and a
-    -- zombie has no player index. It crashed the game once already.
-    BNS.Combat.disarmBallistics(zombie)
-    -- Already in one: count it so the debug probe can say whether any of
-    -- this is working, and put the shell back under our own orders.
-    if urgent and inZombieState(zombie) then
-        brain.lunges = (brain.lunges or 0) + 1
-        BNS.Programs.stopMoving(zombie, brain, brain.animBase or "idle")
-    end
 end
 
 local function updateNPC(zombie, brain)
-    suppressZombie(zombie, brain)
+    BNS.Brain.suppress(zombie, brain)
 
     brain.tick = (brain.tick or ZombRand(TICK_DIVIDER)) + 1
     -- Combat timers must count every tick for smooth attack pacing.
@@ -178,6 +202,18 @@ local function updateNPC(zombie, brain)
 
     local player, dist = BNS.nearestPlayer(zombie:getX(), zombie:getY())
     local ctx = { player = player, dist = dist or 999999 }
+
+    -- Standing within arm's reach of a player is where the engine's own
+    -- zombie behaviour shows: it acquires them and lunges. Hold its state
+    -- machine still for as long as the shell is stood there, because that
+    -- is exactly the window where BNS needs no state change of its own --
+    -- attacks are simulated and the animation comes from the AnimSet
+    -- variables. Hostile ones swing at you from here; friendly ones do
+    -- nothing at all, which is the point.
+    BNS.Combat.holdState(zombie, brain,
+        ctx.dist <= BNS.Programs.MELEE_HOLD_DIST
+            and brain.stopped == true
+            and not BNS.Combat.isDown(brain))
 
     -- Survivors and traders don't fight players — but they do fight
     -- zombies, and zombies scare everyone.

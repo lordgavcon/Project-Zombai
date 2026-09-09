@@ -25,6 +25,7 @@ BNS.CommandModule = "BNS"
 -- argued about here.
 BNS.Suppress = {
     clearTarget = true,  -- setTarget(nil)/setAttackedBy(nil): stops zombie aggression
+    lockState   = true,  -- setStateMachineLocked while standing in melee range
     useless     = false, -- setUseless(true)
     inactive    = false, -- makeInactive(true)
 }
@@ -109,6 +110,16 @@ end
 function BNS.isBandit(zombie)
     local b = BNS.brain(zombie)
     return b ~= nil and b.role == BNS.Role.BANDIT
+end
+
+-- Is this NPC hostile to players *right now*? Role is the whole answer:
+-- survivors and traders never fight people, and a neutral turned on you
+-- has already had its role flipped to BANDIT (BNS_Brain's hit handler).
+-- Combat is gated on this rather than on which program happens to be
+-- running, so a friendly NPC standing next to you cannot throw a punch
+-- however it got there.
+function BNS.isHostile(brain)
+    return brain ~= nil and brain.role == BNS.Role.BANDIT
 end
 
 function BNS.isTrader(zombie)

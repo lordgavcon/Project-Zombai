@@ -73,18 +73,34 @@ See README.md for the feature list and the code-layout map. Key facts:
   probed once and remembered), and a dropped path is re-issued at once.
   Without that the budget is a gag — a shell whose path something else
   cancelled stands still forever while the brain declines to re-order it.
-- **A shell must never be seen in a zombie state.** A zombie that
-  acquires a target close enough goes into its lunge, and the ten-tick
-  suppression cadence was long enough for that to start and be seen. Two
-  defences, and both are needed: inside `LUNGE_GUARD` (8 tiles) BNS_Brain
-  clears the target *every* tick, and the AnimSet overlays cover `lunge`,
-  `staggerback` and `thump` so even a frame of one plays a player clip.
-  `brain.lunges` counts shells caught in a zombie state with a player
-  close and PROBE prints it — it should stay at zero. The on-ground family
-  is deliberately uncovered: there is no verified player clip for a prone
+- **A shell must never be seen in a zombie state — and clearing the target
+  is a race BNS loses at contact range.** `OnZombieUpdate` fires early in
+  `IsoZombie.updateInternal` and the engine re-acquires later in the *same*
+  update, so no cadence of `setTarget(nil)` beats it with a player stood
+  against the shell. Worse, **clearing it mid-state is what jams them**:
+  the engine's lunge is using that target to reach its own end condition,
+  and tearing it away every tick left shells frozen in the lunge pose.
+  So `BNS.Brain.suppress` leaves a zombie state alone while it runs and
+  clears the moment it ends (`ZSTATE_MAX` breaks out of one that outstays
+  any real animation), and the actual prevention is upstream:
+  `BNS.Combat.holdState` locks the engine state machine while a shell is
+  *stopped* within `MELEE_HOLD_DIST` of a player, which is exactly the
+  window where BNS needs no state change of its own. The lock releases the
+  moment that stops being true, and latches off past `LOCK_MAX` — an
+  engine flag stuck on must never park an NPC (`BNS.Suppress.lockState`
+  switches the whole thing off from the Anim lab).
+  The AnimSet overlays still cover `lunge`, `staggerback` and `thump` as
+  the backstop. `brain.lunges` / `brain.zJams` count entries and jams, and
+  PROBE prints both — they should stay at zero. The on-ground family is
+  deliberately uncovered: there is no verified player clip for a prone
   body, and standing an idle up on the floor would look worse than the
   vanilla get-up. Add those states to `tools/gen_animsets.lua` only once
   the clip names are read off a real install.
+- **Hostility is a role, not a program.** `BNS.Combat.attack` refuses
+  outright unless `BNS.isHostile(brain)`, so a survivor or trader stood
+  against a player does nothing whatever transition put them there; a
+  neutral that turns on you has had its role flipped to `BANDIT` first.
+  Never gate combat on which program happens to be running.
 - **A gunner's answer to someone in their face is a shove, not a lunge.**
   `BNS.Combat.shove` plays BNS's *own* clip. It does no damage,
   symmetrically with `receiveHit`: pushing is not attacking in either

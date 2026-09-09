@@ -34,7 +34,10 @@
   and it shoves you off and brings the gun back up, where a zombie would
   lunge. They turn to face what they are swinging at, and they neither
   look, sound nor move like the dead — living skin rather than a corpse's,
-  no zombie moaning, and no zombie lunge. Shove one and they go down
+  no zombie moaning, and no zombie lunge. Stand against a hostile one and
+  it swings at you; stand against a survivor or trader and they simply
+  stand there, because whether an NPC will fight you is their role and not
+  whatever they happen to be doing. Shove one and they go down
   without taking a scratch — a push is not an attack — and while they are
   on the floor they stop fighting entirely; health only moves when you
   swing at them or stomp on them down there. Two-handed weapons are carried
@@ -196,6 +199,14 @@ Non-admin requests are dropped and logged.
   table if a gun feels wrong. The reload has no sound of its own, because
   a sound name cannot be verified offline; the tell is the weapon coming
   down, the callout, and the bandit giving ground.
+- **NPC shells are held out of the engine's own zombie behaviour at
+  contact range.** Clearing a shell's target cannot win that race — the
+  engine re-acquires inside the same update — so while an NPC is stood
+  within arm's reach of a player its engine state machine is held still,
+  which is the only thing that stops a lunge starting. It is released the
+  moment they need to move and dropped unconditionally after ten seconds,
+  and the whole mechanism can be switched off from the Anim lab
+  (`lockState`) if a build dislikes it.
 - **NPC shells are kept out of the engine's ballistics path.** B42 gives a
   character aiming a firearm a `BallisticsController` that reads the
   *player* aiming reticle, indexed by player number — and a zombie's is

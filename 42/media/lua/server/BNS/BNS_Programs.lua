@@ -351,6 +351,12 @@ BNS.Programs.STANDOFF_KEEP = 0.60
 -- than stand in your face. Not every swing, or they never close.
 BNS.Programs.STEP_BACK_CHANCE = 40
 
+-- Within this of a player, a stopped shell has its engine state machine
+-- held still so it cannot lunge (BNS.Combat.holdState). Wide enough to
+-- cover any melee exchange, narrow enough that a shell with somewhere to
+-- be is never held.
+BNS.Programs.MELEE_HOLD_DIST = 2.5
+
 BNS.Programs[BNS.Program.ATTACK] = function(zombie, brain, ctx)
     local p = ctx.player
     if not p or ctx.dist > 50 or p:isDead() then

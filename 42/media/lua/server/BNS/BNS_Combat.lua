@@ -240,6 +240,69 @@ function BNS.Combat.disarmBallistics(zombie)
     end
 end
 
+-- Hold the engine's state machine still ------------------------------------
+--
+-- Clearing the target is a race BNS loses at contact range: OnZombieUpdate
+-- fires early in IsoZombie.updateInternal and the engine re-acquires later
+-- in the *same* update, so a player stood against a shell gets a lunge
+-- between every clear. The lever that wins is upstream -- with the state
+-- machine locked the engine cannot switch the shell into its lunge at all.
+--
+-- Only safe while the shell has nothing it needs a state change for:
+-- standing in melee range, where the attacks are BNS's own simulation and
+-- the animation comes from the AnimSet variables rather than the state.
+-- It is released the moment that stops being true, and unconditionally
+-- past LOCK_MAX -- an engine flag stuck on must never park an NPC for
+-- good, which is the lesson setUseless taught.
+BNS.Combat.LOCK_MAX = 600 -- engine ticks (10s) before the lock is dropped regardless
+BNS.Combat.lockProbe = nil -- nil = untried, true = usable, false = written off
+
+local function setLock(zombie, locked)
+    if BNS.Combat.lockProbe == false then return false end
+    if not zombie.setStateMachineLocked then
+        BNS.Combat.lockProbe = false
+        return false
+    end
+    if not pcall(function() zombie:setStateMachineLocked(locked) end) then
+        BNS.Combat.lockProbe = false
+        BNS.log("setStateMachineLocked unusable on this build; NPCs may lunge at contact range")
+        return false
+    end
+    BNS.Combat.lockProbe = true
+    return true
+end
+
+local function release(zombie, brain)
+    if brain.stateLocked then
+        setLock(zombie, false)
+        brain.stateLocked = nil
+    end
+end
+
+function BNS.Combat.holdState(zombie, brain, want)
+    if not BNS.Suppress.lockState then want = false end
+    if not want then
+        -- The caller stopped asking: let go of everything, including the
+        -- spent flag, so the next standoff starts with a full budget.
+        release(zombie, brain)
+        brain.lockTicks, brain.lockSpent = nil, nil
+        return false
+    end
+    brain.lockTicks = (brain.lockTicks or 0) + 1
+    if brain.lockTicks >= BNS.Combat.LOCK_MAX then brain.lockSpent = true end
+    -- Spent latches until the caller stops wanting the hold. Without the
+    -- latch it would drop the lock at the cap and immediately take it
+    -- again on the next tick, which is not a limit at all.
+    if brain.lockSpent then
+        release(zombie, brain)
+        return false
+    end
+    if not brain.stateLocked and setLock(zombie, true) then
+        brain.stateLocked = true
+    end
+    return brain.stateLocked == true
+end
+
 function BNS.Combat.isStomp(attacker)
     return anyFlag(attacker, BNS.Combat.StompFlags)
 end
@@ -730,6 +793,11 @@ function BNS.Combat.shoot(zombie, brain, player)
 end
 
 function BNS.Combat.attack(zombie, brain, player)
+    -- Friendly and neutral NPCs never attack a person, however they came
+    -- to be stood next to one. Gated on the role rather than on which
+    -- program is running, so there is no route to a survivor throwing a
+    -- punch because some transition put them in the wrong program.
+    if not BNS.isHostile(brain) then return end
     -- No damage until the warning has run its course.
     if not brain.warned then return end
     if not BNS.Combat.canAttack(brain) then return end
