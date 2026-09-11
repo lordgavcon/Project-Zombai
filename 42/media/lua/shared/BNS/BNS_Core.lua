@@ -55,6 +55,7 @@ BNS.Program = {
     DEFEND   = "defend",
     TRADE    = "trade",
     FIGHTZ   = "fightz",   -- fighting off real zombies
+    SEARCH   = "search",   -- lost sight of you: checking where you were
     SCAVENGE = "scavenge", -- looting a building for supplies
     HAUL     = "haul",     -- carrying loot to a claimed vehicle
 }
@@ -81,6 +82,7 @@ function BNS.Options()
         robbery          = BNS.SV("RobberyEnabled", true),
         damageMult       = BNS.SV("NPCDamageMultiplier", 1.0),
         attackSpeed      = BNS.SV("NPCAttackSpeed", 0.5),
+        runSpeed         = BNS.SV("NPCRunSpeed", 0.7),
         doorDelay        = BNS.SV("DoorOpenDelay", 3),
         scavenging       = BNS.SV("ScavengingEnabled", true),
         vehicles         = BNS.SV("NPCVehiclesEnabled", true),
@@ -159,6 +161,8 @@ end
 -- likely a firearm is -- plus one stat, toughness, because that is what a
 -- tier is for. Nothing else should branch on `brain.tier`.
 BNS.Behaviour = {
+    runSpeed    = 0.7,  -- fraction of a sprint an NPC chases at
+    searchLook  = 300,  -- engine ticks spent looking round where they lost you
     robChance   = 40,   -- % chance an engagement opens as a robbery
     fleeHealth  = 0.35, -- below this, a hurt bandit breaks off
     standChance = 10,   -- % who stand their ground against a zombie mob

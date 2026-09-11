@@ -13,6 +13,7 @@ require "BNS/BNS_Persistence"
 require "BNS/BNS_Spawner"
 require "BNS/BNS_Programs"
 require "BNS/BNS_Combat"
+require "BNS/BNS_Senses"
 require "BNS/BNS_Anim"
 require "BNS/BNS_ZombieThreat"
 require "BNS/BNS_Doors"
@@ -213,6 +214,11 @@ local function updateNPC(zombie, brain)
 
     local player, dist = BNS.nearestPlayer(zombie:getX(), zombie:getY())
     local ctx = { player = player, dist = dist or 999999 }
+    -- What this NPC actually *knows* about where the player is, before
+    -- any program gets to look. Programs steer by ctx.goX/goY, never by
+    -- the player's live position: reading that every tick is perfect
+    -- knowledge, and nothing a player did could shake anyone off.
+    BNS.Senses.observe(zombie, brain, ctx)
 
     -- Standing within arm's reach of a player is where the engine's own
     -- zombie behaviour shows: it acquires them and lunges. Hold its state

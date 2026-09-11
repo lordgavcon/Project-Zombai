@@ -24,6 +24,7 @@ require "BNS/BNS_Spawner"
 require "BNS/BNS_Squads"
 require "BNS/BNS_Programs"
 require "BNS/BNS_Combat"
+require "BNS/BNS_Senses"
 require "BNS/BNS_Look"
 require "BNS/BNS_Bases"
 require "BNS/BNS_Raids"
@@ -139,6 +140,9 @@ function BNS.Debug.snapshot(player)
             weapon = rec.weapon and rec.weapon.item or nil,
             gun = rec.weapon and rec.weapon.gun or false,
             warned = brain and brain.warned or false,
+            -- What they know about you, which is what pursuit steers by.
+            lostFor = brain and brain.lostFor or nil,
+            seen = brain and brain.seenX ~= nil or false,
             ammo = brain and brain.ammo and brain.ammo.left or nil,
             mags = brain and brain.ammo and brain.ammo.spares or nil,
             reloading = brain and brain.reloadTimer ~= nil or false,
@@ -636,6 +640,29 @@ BNS.Debug.Scenarios = {
                 end
             end
             for _, line in ipairs(BNS.Look.report()) do note(player, "  " .. line) end
+        end,
+    },
+    hunt = {
+        label = "Lose a bandit",
+        watch = "let this one see you, then break line of sight and move. "
+            .. "They walk to where you *were*, look around for a few "
+            .. "seconds, and go back to wandering -- they do not follow you",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if not shell then return end
+            local brain = BNS.brain(shell)
+            brain.warned, brain.warnTimer = true, nil
+            brain.program = BNS.Program.APPROACH
+            note(player, string.format(
+                "chase speed %.2f of a sprint, %d ticks of grace before they "
+                    .. "call you lost, memory worth %d ticks, %d spent looking",
+                BNS.Programs.runSpeed(), BNS.Senses.GRACE,
+                BNS.Senses.MEMORY, BNS.Behaviour.searchLook))
+            if BNS.Combat.losProbe == false then
+                note(player, "  WARNING: no line-of-sight check on this build, "
+                    .. "so they can still see through walls")
+            end
         end,
     },
     stagger = {

@@ -115,6 +115,26 @@ See README.md for the feature list and the code-layout map. Key facts:
   the same rule — it is not a player privilege. `setStaggerBack` is safe
   to hand a shell where the combat-action flags are not: it is a
   *reaction*, so it does not drag them into the ballistics path.
+- **Pursuit steers by what the NPC knows, never by where the player is.**
+  Reading `ctx.player:getX()` every tick is perfect knowledge: break line
+  of sight, cross a building, and they still walked exactly to you.
+  `BNS.Senses.observe` runs once per brain tick before any program and
+  fills in `ctx.visible`, `ctx.goX/goY` (the player when seen, the
+  remembered spot when not), `ctx.lost`, `ctx.stale` and `ctx.knownDist`.
+  **Programs must use `ctx.goX/goY`, and give-up distances must use
+  `ctx.knownDist`** — deciding you are too far away to chase, from a
+  position they cannot see, is the same bug wearing a different hat.
+  Losing sight past `GRACE` sends them to `SEARCH`: walk to the last known
+  spot, look around for `BNS.Behaviour.searchLook`, then forget the whole
+  engagement and wander off. `noticesPlayer` is `ctx.visible`, so nobody
+  is spotted through a wall either. A build with no `CanSee` behaves
+  exactly as before rather than being blinded.
+- **A chase has to be losable.** `setRunning(true)` gives a shell the
+  *zombie* sprint, which is faster than a person. `BNS.Programs.setSpeed`
+  pulls a chase back to `NPCRunSpeed` (default 0.7) through a probed
+  candidate list, clamped well away from zero — a speed modifier of
+  nothing is an NPC that never moves again, which is the `setUseless`
+  lesson again. Walking is deliberately left alone.
 - **Hostility is a role, not a program.** `BNS.Combat.attack` refuses
   outright unless `BNS.isHostile(brain)`, so a survivor or trader stood
   against a player does nothing whatever transition put them there; a

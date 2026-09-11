@@ -38,6 +38,8 @@ Sandbox_EN = {
 	Sandbox_BNS_NPCDamageMultiplier_tooltip = "Scales all damage NPCs deal to players.",
 	Sandbox_BNS_NPCAttackSpeed = "NPC attack speed",
 	Sandbox_BNS_NPCAttackSpeed_tooltip = "How fast NPCs swing and shoot. 0.5 is half speed: swings take twice as long to land and guns fire half as often. Lower gives you more room to read a fight and get out of the way.",
+	Sandbox_BNS_NPCRunSpeed = "NPC chase speed",
+	Sandbox_BNS_NPCRunSpeed_tooltip = "How fast NPCs run when chasing, as a fraction of a full sprint. 0.7 is a person's run rather than a zombie's: fast enough to be a threat, slow enough that you can break away by choosing your ground.",
 
 	Sandbox_BNS_DoorOpenDelay = "Bandit door-opening delay (seconds)",
 	Sandbox_BNS_DoorOpenDelay_tooltip = "How long a bandit rattles at an unlocked door before it opens - the rattling is audible, warning anyone inside. Doors secured with a combination lock, key lock or barricade can't be opened and must be broken down instead.",

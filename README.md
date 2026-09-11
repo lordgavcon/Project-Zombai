@@ -199,6 +199,13 @@ Non-admin requests are dropped and logged.
   table if a gun feels wrong. The reload has no sound of its own, because
   a sound name cannot be verified offline; the tell is the weapon coming
   down, the callout, and the bandit giving ground.
+- **You can lose them.** NPCs follow what they last *saw*, not where you
+  actually are: break line of sight and the place they are walking to
+  stops moving. They arrive at it, look around for a few seconds, and go
+  back to wandering — and they will not spot you through a wall to begin
+  with. They chase at a person's run rather than a zombie's sprint
+  (tunable: **NPC chase speed**), so choosing your ground is a real way
+  out of a fight instead of a delay before one.
 - **Hitting one knocks them off their beat.** A solid hit staggers an NPC:
   the swing they were part way through is gone, their aim is spoiled, and
   they cannot act until they recover — so landing one buys you the next

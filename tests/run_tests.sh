@@ -34,7 +34,7 @@ else
     echo "python3 not found - skipping AnimSet XML well-formedness check"
 fi
 
-for suite in test_archetypes test_zombiethreat test_doors test_scavenge test_vehicles test_debug test_signs test_anim test_movement test_combat test_population test_squads; do
+for suite in test_archetypes test_zombiethreat test_doors test_scavenge test_vehicles test_debug test_signs test_anim test_movement test_combat test_population test_squads test_senses; do
     echo "== $suite =="
     lua5.1 "$ROOT/tests/$suite.lua" "$LUA_ROOT"
 done
