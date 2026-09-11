@@ -409,6 +409,7 @@ function BNS.DebugUI:rebuildList()
                 flags = flags .. " [lost " .. npc.lostFor .. "]"
             elseif npc.seen then flags = flags .. " [sees you]" end
             if (npc.lunges or 0) > 0 then flags = flags .. " [zed x" .. npc.lunges .. "]" end
+            if npc.recovering then flags = flags .. " [getting up]" end
             if (npc.jams or 0) > 0 then flags = flags .. " [JAM x" .. npc.jams .. "]" end
             if npc.held then flags = flags .. " [held]" end
             if npc.swing then flags = flags .. " [" .. npc.swing .. "]" end

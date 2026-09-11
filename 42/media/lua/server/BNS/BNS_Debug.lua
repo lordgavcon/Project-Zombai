@@ -152,6 +152,10 @@ function BNS.Debug.snapshot(player)
             stamina = brain and brain.stamina or nil,
             swing = brain and brain.swingPhase or nil,
             down = brain and BNS.Combat.isDown(brain) or false,
+            -- On their feet but still being stood up by the engine, and
+            -- how many times they have been floored altogether.
+            recovering = brain and BNS.Combat.isRecovering(brain) or false,
+            knockdowns = brain and brain.knockdowns or 0,
             staggered = brain and BNS.Combat.isStaggered(brain) or false,
             lunges = brain and brain.lunges or 0,
             jams = brain and brain.zJams or 0,
@@ -349,6 +353,12 @@ function BNS.Debug.animProbe(player, args)
         "  zombie states entered: %d, jammed: %d, machine held: %s (state now: %s)",
         brain.lunges or 0, brain.zJams or 0, tostring(brain.stateLocked == true),
         BNS.Combat.stateName(shell) or "?"))
+    -- One push must produce exactly one of these. More than one off a
+    -- single shove is the engine's own account of the knockdown being
+    -- read back as a fresh one.
+    note(player, string.format("  knockdowns: %d (down=%s, still getting up=%s)",
+        brain.knockdowns or 0, tostring(BNS.Combat.isDown(brain)),
+        tostring(BNS.Combat.isRecovering(brain))))
     note(player, string.format("  path: hasPath=%s moving=%s target=%s,%s orders=%d lost=%d",
         readShell(shell, "hasPath") or "-",
         readShell(shell, "isMoving") or "-",
@@ -822,9 +832,11 @@ BNS.Debug.Scenarios = {
     },
     shove = {
         label = "Shove + stomp",
-        watch = "shoving the bandit puts them on the floor and costs them "
-            .. "no health at all; they stop swinging until they are up. "
-            .. "Health only moves when you stomp or swing at them down there",
+        watch = "one push, one fall: they go over once, get up, and stay "
+            .. "up while you stand over them -- PROBE counts knockdowns "
+            .. "and it should read 1 per push. It costs them no health at "
+            .. "all and they stop swinging until they are up; health only "
+            .. "moves when you stomp or swing at them down there",
         run = function(player)
             local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 1 })
             local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])

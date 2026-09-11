@@ -366,6 +366,24 @@ Two invariants worth keeping in mind when touching the debug code:
   always expires on its own timer, with `DOWN_MAX` capping how long an
   engine answer is believed. An unverified flag stuck on true must never
   park an NPC for good; that is the `setUseless` lesson.
+  **One push is one fall, and the poll must never start a second.** The
+  engine's own account of a knockdown outlasts `GETUP_TICKS` — the shell
+  is still being stood up when BNS's timer ends — so `readDowned` read
+  "down" again at the very moment they regained their feet and began the
+  knockdown over: a bandit stumbling repeatedly off a single shove for as
+  long as the player stood near them. Three things hold the line now, and
+  all three are load-bearing: `getup` is not in `DownStates` (getting up
+  is the *end* of a knockdown, not evidence of one — `downTimer` already
+  covers that window); `KNOCK_GRACE` makes the poll ignorable for a beat
+  after a down ends (`BNS.Combat.isRecovering`, which also bars
+  `holdState`, since freezing the state machine mid-get-up drops them
+  again); and `DOWN_MAX` now *latches* into `brain.downMute`, cleared only
+  when the engine says "not down". `downSince` is cleared with `downTimer`,
+  so reading the cap against it made the deadline a duty cycle rather than
+  a deadline — down 10s, up one tick, down 10s, for ever. Only
+  `receiveHit` may *start* a knockdown, because a push is something we
+  were told happened; the poll only ever notices one, and a notice can
+  echo. `brain.knockdowns` counts them and PROBE prints it.
 - **A shell has to be turned towards what it is hitting.** It points
   wherever the engine last left it -- usually the way it was walking --
   so bandits swung with their back to the player until

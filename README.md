@@ -216,6 +216,10 @@ Non-admin requests are dropped and logged.
   you ignores the noise — they have better information — and anyone
   already in a fight is too busy to care. Firing a gun to pull a horde off
   a building now pulls whoever else is in earshot as well.
+- **Push one over and they go over once.** A shove costs them no health,
+  puts them on the floor and takes them out of the fight until they are
+  up — and then they stay up. Standing over a downed bandit no longer
+  keeps them stumbling; if you want them down again, push them again.
 - **Hitting one knocks them off their beat.** A solid hit staggers an NPC:
   the swing they were part way through is gone, their aim is spoiled, and
   they cannot act until they recover — so landing one buys you the next

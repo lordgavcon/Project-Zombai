@@ -112,15 +112,31 @@ BNS.Combat.GETUP_TICKS = 150 -- ~2.5s down before they are back on their feet
 BNS.Combat.DOWN_POLL = 10    -- engine ticks between asking whether they are down
 BNS.Combat.DOWN_MAX = 600    -- ~10s: past this the engine's answer is not believed
 
+-- One push is one fall. The engine's own account of a knockdown outlasts
+-- BNS's timer -- the shell is still picking itself up when the timer runs
+-- out -- so the poll below would read "down" again the moment they stood
+-- and start the whole knockdown over. A player standing over a bandit saw
+-- them stumble again and again off a single shove. After a knockdown ends
+-- the poll is therefore ignored for a moment, long enough for the engine
+-- to finish getting them up and stop saying they are on the floor.
+--
+-- This gates the *observation* only. A second real push still puts them
+-- straight back down: receiveHit is something we were told happened,
+-- where the poll is something we noticed, and only the second one echoes.
+BNS.Combat.KNOCK_GRACE = 150 -- ~2.5s after a knockdown before the poll counts again
+
 -- Methods that mean "on the floor". Deliberately narrow: `isOnFloor` is
 -- IsoMovingObject's "standing on a floor tile", which is true of everyone
 -- standing up, and reading it here would down every NPC permanently.
 BNS.Combat.DownFlags = { "isKnockedDown", "isFullyRagdolling" }
 
 -- ...and the state machine's own account of it, which needs no flag at
--- all: a shell in its on-ground, get-up or fall-down state is not
--- attacking anybody.
-BNS.Combat.DownStates = { "onground", "getup", "falldown", "knock" }
+-- all: a shell on the ground or on its way there is not attacking
+-- anybody. `getup` is deliberately *not* here: getting up is the end of
+-- a knockdown, not evidence of one, and counting it as evidence is what
+-- let the poll re-down a bandit at the exact moment they regained their
+-- feet. BNS's own downTimer already covers the get-up window.
+BNS.Combat.DownStates = { "onground", "falldown", "knock" }
 
 -- Shove and stomp. A shove is not an attack -- it puts someone on the
 -- floor, and what happens to them there is what hurts. A stomp is the
@@ -185,6 +201,13 @@ function BNS.Combat.isDown(brain)
     return brain ~= nil and brain.downTimer ~= nil
 end
 
+-- On their feet, but the engine has not finished standing them up.
+-- Nothing that locks or overrides the state machine may run in here, or
+-- the get-up is interrupted and they go over again.
+function BNS.Combat.isRecovering(brain)
+    return brain ~= nil and brain.downGrace ~= nil
+end
+
 -- Put them on the floor. The engine drives the fall and the get-up (and
 -- the on-ground animation, which the overlays deliberately do not cover),
 -- so this is only BNS letting go of everything it was mid-way through.
@@ -195,6 +218,11 @@ function BNS.Combat.goDown(zombie, brain)
         brain.reloadTimer = nil -- you do not finish a magazine change on your back
         brain.burstLeft = nil
         brain.stamina = math.max((brain.stamina or 1.0) - 0.15, 0)
+        brain.downGrace = nil -- a real push restarts the whole thing
+        -- Counted so "one push, one fall" can be read off the debug
+        -- panel rather than judged by eye: two of these off a single
+        -- shove is the echo back.
+        brain.knockdowns = (brain.knockdowns or 0) + 1
         BNS.Anim.set(zombie, brain, "idle")
     end
     brain.downTimer = BNS.Combat.GETUP_TICKS
@@ -611,15 +639,36 @@ function BNS.Combat.tick(zombie, brain)
     if brain.downTimer then
         brain.downTimer = brain.downTimer - 1
         brain.downSince = (brain.downSince or 0) + 1
+        -- Past the deadline the engine's answer stops being believed --
+        -- and stays disbelieved until it changes. DOWN_MAX used to be
+        -- read against downSince, which is cleared with downTimer, so a
+        -- flag stuck on true was not capped at all: they stood up for a
+        -- single tick and went straight back down, for ever.
+        if brain.downSince >= BNS.Combat.DOWN_MAX then brain.downMute = true end
         if brain.downTimer <= 0 then
             brain.downTimer, brain.downSince, brain.downPoll = nil, nil, nil
+            -- Back on their feet. The engine is still playing the get-up
+            -- and will keep answering "down" for a moment yet; believing
+            -- it here is what turned one shove into a bandit stumbling
+            -- over and over while the player stood next to them.
+            brain.downGrace = BNS.Combat.KNOCK_GRACE
         end
+    end
+    if brain.downGrace then
+        brain.downGrace = brain.downGrace - 1
+        if brain.downGrace <= 0 then brain.downGrace = nil end
     end
     brain.downPoll = (brain.downPoll or ZombRand(BNS.Combat.DOWN_POLL)) - 1
     if brain.downPoll <= 0 then
         brain.downPoll = BNS.Combat.DOWN_POLL
-        if (brain.downSince or 0) < BNS.Combat.DOWN_MAX
-                and BNS.Combat.readDowned(zombie) then
+        local engineDown = BNS.Combat.readDowned(zombie)
+        -- A disbelieved answer is re-armed by the engine changing its
+        -- mind, never by time.
+        if not engineDown then brain.downMute = nil end
+        -- Sustaining a knockdown already in progress is fine; *starting*
+        -- one is refused while the last one is still echoing.
+        if engineDown and not brain.downMute
+                and (brain.downTimer or not brain.downGrace) then
             local since = brain.downSince
             BNS.Combat.goDown(zombie, brain)
             brain.downSince = since or 0

@@ -657,6 +657,65 @@ assert(BNS.Combat.receiveHit(victimNpc, victimBrain, pusher, nil, 1.0) == "hurt"
 assert(victimBrain.health < floored, "which hurts")
 print("hit rule OK (shove floors, weapons and stomps hurt)")
 
+-- One push is one fall. The engine keeps reporting a shell as down for
+-- longer than BNS holds them there, so the poll that watches for
+-- knockdowns BNS did not cause would read "down" again the moment they
+-- stood up and start the whole thing over -- a bandit stumbling again
+-- and again off a single shove for as long as the player stayed near.
+BNS.Combat.flagProbe = {}
+local onceBrain = newBrain(axe)
+local onceNpc = makeNPC(onceBrain, 0, 0)
+function onceNpc:setHealth() end
+-- The engine's account of the knockdown, which outlasts BNS's timer by a
+-- good margin and then stops of its own accord, exactly as a real get-up
+-- does.
+onceNpc.engineDownFor = BNS.Combat.GETUP_TICKS + 80
+function onceNpc:getCurrentStateName()
+    if self.engineDownFor > 0 then
+        self.engineDownFor = self.engineDownFor - 1
+        return "ZombieOnGroundState"
+    end
+    return "IdleState"
+end
+
+assert(BNS.Combat.receiveHit(onceNpc, onceBrain, pusher, nil, 0) == "shoved")
+local falls, wasDown = 1, true
+for _ = 1, BNS.Combat.GETUP_TICKS * 6 do
+    step(onceNpc, onceBrain, makePlayer(1, 0))
+    local down = BNS.Combat.isDown(onceBrain)
+    if down and not wasDown then falls = falls + 1 end
+    wasDown = down
+end
+assert(falls == 1, "one push knocks them over once, not " .. falls .. " times")
+assert(not BNS.Combat.isDown(onceBrain), "and they are up at the end of it")
+
+-- ...and they can be pushed over again afterwards. The guard is on the
+-- engine's echo, not on being shoved: a second real push is a second
+-- knockdown.
+assert(BNS.Combat.receiveHit(onceNpc, onceBrain, pusher, nil, 0) == "shoved",
+    "a later push still floors them")
+assert(BNS.Combat.isDown(onceBrain), "one push, one fall -- every time")
+
+-- An engine that never stops saying "down" must not turn into a bandit
+-- falling over on a loop either: the deadline disbelieves the answer
+-- until the engine changes its mind, rather than re-arming on a timer.
+BNS.Combat.flagProbe = {}
+local loopBrain = newBrain(axe)
+local loopNpc = makeNPC(loopBrain, 0, 0)
+function loopNpc:isKnockedDown() return true end
+BNS.Combat.goDown(loopNpc, loopBrain)
+local loopFalls, loopWas = 1, true
+for _ = 1, BNS.Combat.DOWN_MAX * 3 do
+    step(loopNpc, loopBrain, makePlayer(1, 0))
+    local down = BNS.Combat.isDown(loopBrain)
+    if down and not loopWas then loopFalls = loopFalls + 1 end
+    loopWas = down
+end
+assert(loopFalls == 1,
+    "a stuck flag stops being believed for good, not once every DOWN_MAX ("
+        .. loopFalls .. " falls)")
+print("one push is one fall OK")
+
 -- 14. They swing at what they are looking at --------------------------------------------
 -- A shell points wherever the engine last left it, usually the way it was
 -- walking, and nothing turned it towards what it was hitting -- so

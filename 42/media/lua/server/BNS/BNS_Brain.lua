@@ -227,10 +227,14 @@ local function updateNPC(zombie, brain)
     -- attacks are simulated and the animation comes from the AnimSet
     -- variables. Hostile ones swing at you from here; friendly ones do
     -- nothing at all, which is the point.
+    -- ...but never while they are on the floor or still getting off it:
+    -- freezing the state machine part way through a get-up is another way
+    -- to make one shove look like a bandit falling over repeatedly.
     BNS.Combat.holdState(zombie, brain,
         ctx.dist <= BNS.Programs.MELEE_HOLD_DIST
             and brain.stopped == true
-            and not BNS.Combat.isDown(brain))
+            and not BNS.Combat.isDown(brain)
+            and not BNS.Combat.isRecovering(brain))
 
     -- Survivors and traders don't fight players — but they do fight
     -- zombies, and zombies scare everyone.
