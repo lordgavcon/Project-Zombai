@@ -378,6 +378,51 @@ for _, poolName in ipairs({ "casings", "rags", "refuse", "camp", "broken" }) do
 end
 print("ground cues are refuse only OK")
 
+-- A pool with nothing on this build does not take its cue with it -------------------
+-- 42.20 shipped none of the casing ids the mod listed, so "no usable
+-- items for decoration pool 'casings'" went into console.txt and a held
+-- stronghold quietly lost that share of its litter. The cue is what
+-- matters, not which pool supplies it: another pool from the same zone
+-- covers the square instead.
+BNS.Signs.clearPoolCache()
+local realKnown = {}
+for id in pairs(KNOWN_ITEMS) do realKnown[id] = true end
+for _, id in ipairs(BNS.Signs.poolIds("casings")) do KNOWN_ITEMS[id] = nil end
+assert(#BNS.Signs.resolvePool("casings") == 0,
+    "the casings pool is empty on this build, as it was on 42.20")
+
+local bareBase = newBase(50000, 0, 10)
+local bareSquares, decorated = 0, 0
+for i = 1, 4000 do
+    local sq = makeSquare(50000 + i, 0)
+    if BNS.Signs.decorateSquare(sq, bareBase, i % 2 == 0 and "core" or "approach") then
+        decorated = decorated + 1
+    end
+    bareSquares = bareSquares + #sq.floor
+end
+assert(decorated > 0, "squares are still decorated with the casings pool empty")
+assert(bareBase.decorations == 60,
+    "and the cap is still reached, got " .. bareBase.decorations)
+for _, id in ipairs(BNS.Signs.poolIds("casings")) do KNOWN_ITEMS[id] = realKnown[id] end
+print("empty pool falls back instead of dropping the cue OK ("
+    .. decorated .. " squares)")
+
+-- ...and the panel says which ids this build actually has, which is how
+-- the candidate lists get cut down to the one that is real.
+BNS.Signs.clearPoolCache()
+local report = BNS.Signs.report()
+assert(#report == 5, "a line per pool, got " .. #report)
+local blob = table.concat(report, "\n")
+assert(blob:find("casings"), "casings is reported")
+assert(blob:find("Base.BulletShell"), "and names the id that resolved")
+BNS.Signs.clearPoolCache()
+for _, id in ipairs(BNS.Signs.poolIds("casings")) do KNOWN_ITEMS[id] = nil end
+assert(table.concat(BNS.Signs.report(), "\n"):find("none of"),
+    "a pool with nothing on this build says so rather than looking fine")
+for _, id in ipairs(BNS.Signs.poolIds("casings")) do KNOWN_ITEMS[id] = realKnown[id] end
+BNS.Signs.clearPoolCache()
+print("pool report OK")
+
 -- Supplies land in containers, not on the floor -----------------------------------
 -- A stronghold's stores used to be stocked only when a container happened
 -- to be on the very square that streamed in; anything else a player saw

@@ -145,7 +145,8 @@ for _ = 1, 200 do
 end
 assert(grabbed, "grab eventually lands at contact range")
 assert(vb.animBase == "grabbed", "grabbed anim engaged (base mode survives hit pulses)")
-assert(vb.grabbedTimer == 150, "civilians held longest (150 ticks)")
+assert(vb.grabbedTimer == BNS.Behaviour.grabHold,
+    "the same struggle for everyone, whatever their tier")
 print("grab mechanics OK")
 
 -- 5. NPC kills zombies through attackZombie -----------------------------
@@ -153,25 +154,29 @@ local fighter = makeZ(0, 0, { brain = { id = "f", tier = BNS.Tier.THUG, health =
 local fb = fighter:getModData().BNS
 fb.weapon = { item = "Base.Axe", dmg = 0.26, range = 1.3, gun = false }
 local prey = makeZ(1, 0)
-local swings = 0
-while not prey:isDead() and swings < 100 do
-    fb.attackTimer = 0
+-- Combat runs on engine ticks now: BNS.Combat.tick is what advances the
+-- swing cycle, the magazine and the fighter's breath, so the fight is
+-- driven by letting time pass rather than by zeroing a cooldown.
+local ticks = 0
+while not prey:isDead() and ticks < 4000 do
+    BNS.Combat.tick(fighter, fb)
     BNS.Combat.attackZombie(fighter, fb, prey)
-    swings = swings + 1
+    ticks = ticks + 1
 end
 assert(prey:isDead(), "zombie dies to melee")
-print("melee kill OK in " .. swings .. " swings")
+print("melee kill OK in " .. ticks .. " ticks")
 
 fb.weapon = { item = "Base.Shotgun", dmg = 0.55, range = 7, gun = true, sound = "ShotgunShot", hit = 60 }
 local prey2 = makeZ(3, 0)
-local shots = 0
-while not prey2:isDead() and shots < 100 do
-    fb.attackTimer = 0
+fb.ammo, fb.shotTimer, fb.burstLeft, fb.aimTicks = nil, nil, nil, nil
+local gunTicks = 0
+while not prey2:isDead() and gunTicks < 6000 do
+    BNS.Combat.tick(fighter, fb)
     BNS.Combat.attackZombie(fighter, fb, prey2)
-    shots = shots + 1
+    gunTicks = gunTicks + 1
 end
 assert(prey2:isDead(), "zombie dies to gunfire")
-print("gun kill OK in " .. shots .. " shots")
+print("gun kill OK in " .. gunTicks .. " ticks")
 
 -- 6. FIGHTZ program drives at the target --------------------------------
 BNS.ZombieThreat.targets["f"] = makeZ(4, 0)
@@ -231,15 +236,26 @@ sb.weapon = { item = "Base.Axe", dmg = 0.26, range = 1.3, gun = false }
 sb.warned = true
 local prey = makeZ(1, 0)
 sb.animMode = "run"
-sb.attackTimer = 0
-BNS.Combat.attackZombie(sprinter, sb, prey)
+for _ = 1, 240 do
+    BNS.Combat.tick(sprinter, sb)
+    BNS.Combat.attackZombie(sprinter, sb, prey)
+end
 assert(prey.health == 2.0, "no swing while running")
 assert(not BNS.Combat.canAttack(sb), "canAttack says no while running")
 
 sb.animMode = "walk"
-sb.attackTimer = 0
-BNS.Combat.attackZombie(sprinter, sb, prey)
-assert(prey.health < 2.0, "walking is fine to swing from")
+-- A swing is a windup, a contact and a recovery, so it lands a beat
+-- after it is ordered rather than on the same tick -- which is the gap
+-- the player gets to step out of it.
+local before = prey.health
+local hitTicks = 0
+while prey.health == before and hitTicks < 900 do
+    BNS.Combat.tick(sprinter, sb)
+    BNS.Combat.attackZombie(sprinter, sb, prey)
+    hitTicks = hitTicks + 1
+end
+assert(prey.health < before, "walking is fine to swing from")
+assert(hitTicks > 1, "and the swing has a windup rather than landing instantly")
 assert(BNS.Combat.canAttack(sb), "canAttack allows walking")
 
 sb.animMode = "idle"
@@ -261,9 +277,14 @@ assert(farTarget.health == 2.0, "and does not swing while closing")
 
 local closeTarget = makeZ(1, 0)
 BNS.ZombieThreat.targets["z9"] = closeTarget
-zb.attackTimer = 0
 BNS.Programs[BNS.Program.FIGHTZ](fighter, zb, { dist = 999 })
 assert(zb.animMode ~= "run", "stops on arrival, mode is " .. tostring(zb.animMode))
+local plantTicks = 0
+while closeTarget.health == 2.0 and plantTicks < 900 do
+    BNS.Combat.tick(fighter, zb)
+    BNS.Programs[BNS.Program.FIGHTZ](fighter, zb, { dist = 999 })
+    plantTicks = plantTicks + 1
+end
 assert(closeTarget.health < 2.0, "then swings")
 print("FIGHTZ close-then-plant OK")
 
@@ -418,22 +439,175 @@ BNS.Programs.walkTo(stander, 25, 25, 0, false)
 assert(sb2.stopped == nil and stander.pathCalls > afterStop, "it can walk again")
 print("halt is idempotent OK")
 
--- 17. Zombie suppression is not re-asserted every frame --------------------
-local shell = makeZ(0, 0, { brain = { id = "m3", role = "bandit", tier = BNS.Tier.THUG,
-    program = BNS.Program.WANDER, health = 1.0 } })
-local shb = shell:getModData().BNS
-shell.uselessCalls = 0
-shb.suppressTick = 1
-for _ = 1, 60 do
-    shb.suppressTick = (shb.suppressTick or 0) - 1
-    if shb.suppressTick <= 0 then
-        shb.suppressTick = 10
-        shell:setUseless(true)
-    end
+-- 17. Zombie suppression: the real pass, not a re-implementation of it ------
+-- BNS_Brain hooks the engine's events at load, and the modules it pulls in
+-- want a few globals this suite has not needed until now.
+Events = setmetatable({}, { __index = function(t, k)
+    local h = { Add = function() end, Remove = function() end }
+    rawset(t, k, h); return h
+end })
+ModData = ModData or { getOrCreate = function() return {} end }
+require("BNS/BNS_Brain")
+
+local function makeShell(x, y, opts)
+    opts = opts or {}
+    local z = makeZ(x, y, { brain = opts.brain })
+    z.target = opts.target or nil
+    z.state = opts.state or "ZombieIdleState"
+    z.locked = nil
+    function z:getTarget() return self.target end
+    function z:setTarget(t) self.target = t; self.targetClears = (self.targetClears or 0) + 1 end
+    function z:getCurrentStateName() return self.state end
+    function z:setStateMachineLocked(v) self.locked = v end
+    return z
 end
-assert(shell.uselessCalls == 6,
-    "suppression runs ~6 times a second, not 60, got " .. shell.uselessCalls)
+
+-- Far from anyone: the pass runs a few times a second, not sixty.
+local far = makeShell(0, 0, { brain = { id = "m3", role = "bandit",
+    tier = BNS.Tier.THUG, program = BNS.Program.WANDER, health = 1.0 },
+    target = {} })
+local farB = far:getModData().BNS
+farB.suppressTick = 1
+for _ = 1, 60 do
+    far.target = {}
+    BNS.Brain.suppress(far, farB)
+end
+assert(far.targetClears == 6,
+    "suppression runs ~6 times a second when nobody is near, got "
+        .. tostring(far.targetClears))
+
+-- Close to a player: every tick, because the engine re-acquires inside
+-- the same update and a slower cadence leaves room for a lunge.
+BNS.getPlayers = function() return { { getX = function() return 1 end,
+                                      getY = function() return 0 end } } end
+local near = makeShell(0, 0, { brain = { id = "m4", role = "bandit",
+    tier = BNS.Tier.THUG, program = BNS.Program.WANDER, health = 1.0 } })
+local nearB = near:getModData().BNS
+for _ = 1, 30 do
+    near.target = {}
+    BNS.Brain.suppress(near, nearB)
+end
+assert(near.targetClears == 30,
+    "a player at arm's length gets it cleared every tick, got "
+        .. tostring(near.targetClears))
 print("suppression cadence OK")
+
+-- 18. A lunge already under way is left to finish -------------------------
+-- Tearing the target out from under the engine's own state every tick is
+-- what left shells frozen in the lunge pose: the state could never reach
+-- its end condition, so it never released the animation.
+local lunging = makeShell(0, 0, { brain = { id = "m5", role = "bandit",
+    tier = BNS.Tier.THUG, program = BNS.Program.WANDER, health = 1.0 },
+    state = "LungeState" })
+local lb = lunging:getModData().BNS
+for _ = 1, 30 do
+    lunging.target = {}
+    BNS.Brain.suppress(lunging, lb)
+end
+assert((lunging.targetClears or 0) == 0,
+    "the target is left alone while the state is using it, got "
+        .. tostring(lunging.targetClears))
+assert(lb.lunges == 1, "the lunge is counted once, not per tick")
+
+-- The tick it ends is the tick the target goes.
+lunging.state = "ZombieIdleState"
+lunging.target = {}
+BNS.Brain.suppress(lunging, lb)
+assert(lunging.targetClears == 1, "and cleared the moment the state is over")
+assert(lb.zStateTicks == nil, "with the counter reset for the next one")
+
+-- A state that outstays any real animation is jammed, and gets broken out
+-- of rather than leaving an NPC posed for ever.
+lunging.state = "LungeState"
+lb.zJams = nil
+for _ = 1, 200 do
+    lunging.target = {}
+    BNS.Brain.suppress(lunging, lb)
+end
+assert((lb.zJams or 0) >= 1,
+    "a state stuck past its welcome is broken out of, got " .. tostring(lb.zJams))
+print("lunge is finished, not jammed OK")
+
+-- 19. Standing in melee range holds the engine's state machine ------------
+-- Clearing the target is a race BNS loses at contact range, so the lever
+-- is upstream: with the machine locked the engine cannot switch the shell
+-- into its lunge at all.
+BNS.Combat.lockProbe = nil
+local held = makeShell(0, 0, { brain = { id = "m6", role = "bandit",
+    tier = BNS.Tier.THUG, health = 1.0 } })
+local hb = held:getModData().BNS
+BNS.Combat.holdState(held, hb, true)
+assert(held.locked == true, "stood in reach, the state machine is held")
+assert(hb.stateLocked, "and BNS knows it is holding it")
+BNS.Combat.holdState(held, hb, false)
+assert(held.locked == false, "released as soon as they are not")
+assert(hb.stateLocked == nil, "and BNS lets go of the bookkeeping too")
+
+-- Never held for ever: an engine flag stuck on must not park an NPC. And
+-- the cap has to latch -- dropping the lock at the cap only to retake it
+-- on the next tick is not a limit.
+for _ = 1, BNS.Combat.LOCK_MAX + 50 do BNS.Combat.holdState(held, hb, true) end
+assert(held.locked == false,
+    "past LOCK_MAX the hold is dropped whatever the caller wants")
+assert(hb.lockSpent, "and stays dropped rather than being retaken next tick")
+-- Walking away and coming back gets a fresh budget.
+BNS.Combat.holdState(held, hb, false)
+assert(hb.lockSpent == nil, "leaving the standoff resets it")
+BNS.Combat.holdState(held, hb, true)
+assert(held.locked == true, "and the next one can hold again")
+BNS.Combat.holdState(held, hb, false)
+
+-- A build without the call is written off once, not retried per tick.
+BNS.Combat.lockProbe = nil
+local noLock = makeShell(0, 0, { brain = { id = "m7", role = "bandit", health = 1.0 } })
+local nb = noLock:getModData().BNS
+noLock.setStateMachineLocked = nil
+BNS.Combat.holdState(noLock, nb, true)
+assert(BNS.Combat.lockProbe == false, "a missing call is settled once")
+assert(not nb.stateLocked, "and nothing pretends to be holding anything")
+BNS.Combat.lockProbe = nil
+print("melee state hold OK")
+
+-- 20. Friendly NPCs never attack a person ---------------------------------
+-- Gated on the role, not on which program happens to be running: there is
+-- no route to a survivor throwing a punch because a transition put them
+-- somewhere unexpected.
+local victim = { x = 1, y = 0, hits = {} }
+function victim:getX() return self.x end
+function victim:getY() return self.y end
+function victim:getZ() return 0 end
+function victim:isDead() return false end
+function victim:isSneaking() return false end
+function victim:isRunning() return false end
+function victim:getBodyDamage()
+    return {
+        getBodyPart = function()
+            return { AddDamage = function(_, n) table.insert(victim.hits, n) end,
+                     setScratched = function() end }
+        end,
+        Update = function() end,
+    }
+end
+local friendly = { id = "m8", role = BNS.Role.SURVIVOR, tier = BNS.Tier.CIVILIAN,
+    health = 1.0, warned = true, animMode = "idle", stamina = 1.0,
+    weapon = { item = "Base.Axe", dmg = 0.26, range = 1.3, gun = false } }
+local neighbour = makeZ(0, 0, { brain = friendly })
+for _ = 1, 600 do
+    BNS.Combat.tick(neighbour, friendly)
+    BNS.Combat.attack(neighbour, friendly, victim)
+end
+assert(#victim.hits == 0, "a survivor stood next to you does nothing")
+assert(friendly.swingPhase == nil, "and never even starts a swing")
+
+friendly.role = BNS.Role.BANDIT -- turn hostile, as being attacked would
+local swung = false
+for _ = 1, 600 do
+    BNS.Combat.tick(neighbour, friendly)
+    BNS.Combat.attack(neighbour, friendly, victim)
+    if friendly.swingPhase then swung = true end
+end
+assert(swung, "a hostile one in the same spot does swing")
+print("friendly NPCs hold their hands OK")
 
 -- The warning: a real shot from the gun they carry, then 4 seconds ------------------
 local function makeTarget(x, y)
@@ -477,7 +651,7 @@ assert(not gunner.warned, "and they are not yet committed")
 -- Nothing lands during those 4 seconds, however often combat is called.
 for _ = 1, 239 do
     gunner.warnTimer = gunner.warnTimer - 1
-    gunner.attackTimer = 0
+    BNS.Combat.tick(gz, gunner)
     BNS.Combat.attack(gz, gunner, victim)
 end
 assert(#victim.hits == 0, "no damage during the warning window")
@@ -485,9 +659,17 @@ gunner.warnTimer = gunner.warnTimer - 1
 if gunner.warnTimer <= 0 then gunner.warnTimer = nil; gunner.warned = true end
 assert(gunner.warned, "after 4 seconds they commit")
 
-gunner.attackTimer = 0
+-- The warning shot came out of the magazine like any other round.
+assert(gunner.ammo and gunner.ammo.left == gunner.ammo.mag - 1,
+    "the warning round is spent, left " .. tostring(gunner.ammo and gunner.ammo.left))
+
 gunner.animMode = "idle"
-BNS.Combat.attack(gz, gunner, victim)
+local fireTicks = 0
+while #victim.hits == 0 and fireTicks < 2000 do
+    BNS.Combat.tick(gz, gunner)
+    BNS.Combat.attack(gz, gunner, victim)
+    fireTicks = fireTicks + 1
+end
 assert(#victim.hits > 0, "and then shots land normally")
 print("warning shot + 4s delay OK")
 

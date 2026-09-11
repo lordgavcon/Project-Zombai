@@ -184,8 +184,12 @@ rb.program = BNS.Program.RAID
 local bashes = bashItDown(raider, rb, lockedDoor)
 assert(lockedDoor.destroyed, "door broken down")
 assert(lockedDoor.modData.BNS_Lock == nil, "lock destroyed with the door")
--- Default 300 HP door, 60 dmg/bash unarmed militia = 5 bashes.
-assert(bashes == 5, "militia: 300HP door / 60dmg = 5 bashes, got " .. bashes)
+-- How long a door holds is the *door's* business now, not the tier's:
+-- every bandit bashes for BNS.Behaviour.bashDamage.
+local expected = math.ceil(300 / BNS.Behaviour.bashDamage)
+assert(bashes == expected,
+    "300HP door / " .. BNS.Behaviour.bashDamage .. "dmg = " .. expected
+        .. " bashes, got " .. bashes)
 assert(countSounds(raider.sounds, "WoodDoorBreak") == 1, "break sound played")
 local loud = 0
 for _, s in ipairs(worldSounds) do if s.radius >= 25 then loud = loud + 1 end end
@@ -200,7 +204,10 @@ local rb2 = raider2:getModData().BNS
 rb2.program = BNS.Program.RAID
 local metalBashes = bashItDown(raider2, rb2, metalDoor)
 assert(metalDoor.destroyed, "metal door eventually falls")
-assert(metalBashes == 25, "1500HP door / 60dmg = 25 bashes, got " .. metalBashes)
+local metalExpected = math.ceil(1500 / BNS.Behaviour.bashDamage)
+assert(metalBashes == metalExpected,
+    "1500HP door / " .. BNS.Behaviour.bashDamage .. "dmg = " .. metalExpected
+        .. " bashes, got " .. metalBashes)
 print("strong door OK (" .. metalBashes .. " bashes, 5x a plain door)")
 
 -- 3c. Axe bonus -----------------------------------------------------------
@@ -211,7 +218,13 @@ local cb = chopper:getModData().BNS
 cb.program = BNS.Program.RAID
 cb.weapon = { item = "Base.WoodAxe", dmg = 0.2, range = 1.3, gun = false }
 local axeBashes = bashItDown(chopper, cb, woodDoor2)
-assert(woodDoor2.destroyed and axeBashes == 4, "axe: 300/90 = 4 bashes, got " .. axeBashes)
+-- The tool is the difference between two bandits at a door, not the tier:
+-- a breaching tool is worth half again.
+local axeExpected = math.ceil(300 / math.floor(BNS.Behaviour.bashDamage * 1.5))
+assert(woodDoor2.destroyed and axeBashes == axeExpected,
+    "axe: 300 / " .. math.floor(BNS.Behaviour.bashDamage * 1.5) .. " = "
+        .. axeExpected .. " bashes, got " .. axeBashes)
+assert(axeBashes < expected, "and it is fewer bashes than bare hands")
 print("axe breaching bonus OK (" .. axeBashes .. " bashes)")
 
 -- 3d. Partial damage persists (virtual-pool door) -------------------------
@@ -233,7 +246,8 @@ local b1b = n1b:getModData().BNS
 b1b.program = BNS.Program.ATTACK
 local resumeBashes = bashItDown(n1b, b1b, plainDoor)
 assert(plainDoor.destroyed, "second attempt finishes the weakened door")
-assert(resumeBashes == math.ceil(hpLeft / 25), "resume needs only remaining HP worth of bashes")
+assert(resumeBashes == math.ceil(hpLeft / BNS.Behaviour.bashDamage),
+    "resume needs only remaining HP worth of bashes, got " .. resumeBashes)
 print("partial door damage persists OK (" .. hpLeft .. " HP left, " .. resumeBashes .. " to finish)")
 
 -- 3e. Leaving pursuit stops the bashing -----------------------------------

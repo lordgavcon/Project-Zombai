@@ -110,9 +110,18 @@ assert(z2.vars.Weapon == "heavy", "swapping weapons re-selects the clip set")
 print("weapon class mapping OK")
 
 -- 4. The overlay XML files are in the form the game parses ------------------------------
--- The overlays previously paired <m_Type>STRING</m_Type> with
--- <m_StringValue>, a combination that appears nowhere in the game's own
--- AnimSets -- so the conditions never matched and no node was ever used.
+-- A STRING condition is <m_Type>STRING</m_Type> paired with
+-- <m_StringValue>. That is the form the game's own AnimSets use, and the
+-- form every published animation-framework template uses. <m_Value>
+-- parses into nothing: the node loads, never matches, and the shell keeps
+-- playing the vanilla zombie clip -- which is exactly what "bandits use
+-- the zombie idle animation" was.
+--
+-- The tree is generated (tools/gen_animsets.lua), so the suite also
+-- checks the checked-in files still match what the generator emits.
+local ROOT_DIR = ROOT:gsub("/42/media/lua$", "")
+local gen = dofile(ROOT_DIR .. "/tools/gen_animsets.lua")
+
 local animRoot = ROOT:gsub("/lua$", "") .. "/AnimSets/zombie"
 local function listXml(dir)
     local out = {}
@@ -120,47 +129,90 @@ local function listXml(dir)
     if not p then return out end
     for line in p:lines() do table.insert(out, line) end
     p:close()
+    table.sort(out)
     return out
 end
 local files = listXml(animRoot)
 assert(#files >= 10, "the overlay set exists, found " .. #files)
+
 local sawSwing, sawAim = false, false
+local perState = {}
 for _, path in ipairs(files) do
     local f = assert(io.open(path, "r"))
     local xml = f:read("*a")
     f:close()
     local name = path:match("[^/]+$")
-    assert(not xml:find("m_StringValue"),
-        name .. " uses <m_StringValue>; the game's own files use <m_Value> for STRING conditions")
+    local state = path:match("([^/]+)/[^/]+$")
+    assert(not xml:find("<m_Value>"),
+        name .. " uses <m_Value>; STRING conditions are read from <m_StringValue>")
+    -- XML forbids "--" inside a comment, and the game's parser rejects
+    -- the whole file over it: the generator's own header comment once
+    -- carried one and every node in the mod silently failed to load
+    -- ('The string "--" is not permitted within comments'), which read
+    -- in game as NPCs still using the zombie clips.
+    for body in xml:gmatch("<!%-%-(.-)%-%->") do
+        assert(not body:find("%-%-"),
+            name .. " has \"--\" inside an XML comment; the whole file will fail to parse")
+    end
     assert(xml:find("<m_Name>BNSNPC</m_Name>"),
         name .. " must be gated on BNSNPC or it would apply to real zombies")
     assert(xml:find("<m_AnimName>Bob_"),
         name .. " should play a player clip, not a zombie one")
-    local anim = xml:match("<m_Name>BNSAnim</m_Name>%s*<m_Type>STRING</m_Type>%s*<m_Value>([^<]+)</m_Value>")
-    assert(anim, name .. " must select on a BNSAnim mode")
+    local anim = xml:match("<m_Name>BNSAnim</m_Name>%s*<m_Type>STRING</m_Type>%s*<m_StringValue>([^<]+)</m_StringValue>")
+    assert(anim, name .. " must select on a BNSAnim mode, in the STRING/m_StringValue form")
     assert(BNS.Anim.Modes[anim], name .. " selects on unknown mode '" .. anim .. "'")
-    local weapon = xml:match("<m_Name>Weapon</m_Name>%s*<m_Type>STRING</m_Type>%s*<m_Value>([^<]+)</m_Value>")
+    local weapon = xml:match("<m_Name>Weapon</m_Name>%s*<m_Type>STRING</m_Type>%s*<m_StringValue>([^<]+)</m_StringValue>")
     if weapon then
         assert(BNS.Anim.WeaponClasses[weapon],
             name .. " selects on weapon class '" .. weapon .. "', which vanilla does not use")
     end
+    perState[state] = perState[state] or {}
+    perState[state][anim] = true
     if anim == "swing" then sawSwing = true end
     if anim == "aim" then sawAim = true end
 end
 assert(sawSwing and sawAim, "swings and aiming are both covered")
 
--- Every mode the brain can set must have at least one node, or that mode
--- silently does nothing in game.
-local covered = {}
-for _, path in ipairs(files) do
-    local f = assert(io.open(path, "r")); local xml = f:read("*a"); f:close()
-    local anim = xml:match("<m_Name>BNSAnim</m_Name>%s*<m_Type>STRING</m_Type>%s*<m_Value>([^<]+)</m_Value>")
-    if anim then covered[anim] = true end
+-- An AnimNode only competes inside the AnimState directory it lives in,
+-- and the shell's engine state has nothing to do with the mode we ask
+-- for: BNS suppresses the shell's target, so it never enters its own
+-- attack state, and a swing pulse lands while it is standing or walking.
+-- Every mode therefore has to exist in every state directory shipped, or
+-- that mode silently does nothing for a shell in that state.
+-- The states the engine can throw a shell into on its own -- a lunge
+-- above all -- are the ones where an uncovered state means vanilla
+-- *zombie* clips play. BNS suppresses the target that causes a lunge,
+-- but the node has to be there for the frames before that lands.
+for _, engineState in ipairs({ "lunge", "staggerback", "thump" }) do
+    assert(perState[engineState],
+        "no overlay for '" .. engineState .. "' -- a shell thrown into it "
+            .. "would play the zombie clip")
 end
-for mode in pairs(BNS.Anim.Modes) do
-    assert(covered[mode], "no AnimSet node plays mode '" .. mode .. "'")
+for _, state in ipairs(gen.STATES) do
+    assert(perState[state], "no overlay nodes shipped for AnimState '" .. state .. "'")
+    for mode in pairs(BNS.Anim.Modes) do
+        assert(perState[state][mode],
+            "state '" .. state .. "' has no node for mode '" .. mode .. "'")
+    end
 end
-print("AnimSet overlays OK (" .. #files .. " nodes, every mode covered)")
+
+-- ...and the checked-in tree is exactly what the generator produces, so
+-- a node edited by hand in one directory cannot drift from its copies.
+local expected = gen.files()
+local expectedCount = 0
+for path, body in pairs(expected) do
+    expectedCount = expectedCount + 1
+    local f = io.open(ROOT_DIR .. "/42/" .. path, "r")
+    assert(f, "missing generated overlay " .. path .. " -- run tools/gen_animsets.lua")
+    local got = f:read("*a")
+    f:close()
+    assert(got == body, path .. " differs from tools/gen_animsets.lua -- regenerate it")
+end
+assert(#files == expectedCount,
+    "the overlay tree has " .. #files .. " files but the generator emits "
+        .. expectedCount .. " -- regenerate it")
+print("AnimSet overlays OK (" .. #files .. " nodes across " .. #gen.STATES
+    .. " states, every mode covered in each)")
 
 -- 5. Living-look pass applies what the build supports, skips the rest ------------------
 local looked = { skin = false, blood = false, model = false }
@@ -181,6 +233,168 @@ assert(BNS.Look.support["living skin"] == true, "records what works")
 assert(BNS.Look.support["clear dirt"] == false, "records what does not")
 assert(#BNS.Look.report() >= 6, "reports a line per operation")
 print("living-look pass OK (" .. applied .. " ops applied)")
+
+-- 5b. Zombie rot, human skin, and the moan -----------------------------------------------
+-- Restyling the skin *index* never stopped shells reading as corpses:
+-- HumanVisual carries a zombieRotStage the texture creator composites
+-- over the body, and IsoZombie rolls one at spawn.
+BNS.Look.support = {}
+BNS.Look.broken = {}
+BNS.Look.clearSkinCache()
+
+local rotVisual = { zombieRotStage = 3, skinIndex = nil, skinName = nil }
+function rotVisual:setSkinTextureIndex(i) self.skinIndex = i end
+function rotVisual:setSkinTextureName(n) self.skinName = n end
+function rotVisual:getSkinTexture() return self.skinName or "M_Bod_Test" end
+function rotVisual:isZombie() return true end
+
+-- A living character this build definitely has, so the texture name is
+-- read rather than guessed.
+function getSpecificPlayer(i)
+    if i ~= 0 then return nil end
+    return { getHumanVisual = function() return {
+        getSkinTexture = function() return "M_Bod_Living" end } end }
+end
+
+local rebuilt = false
+local rotShell = {
+    getHumanVisual = function() return rotVisual end,
+    getItemVisuals = function() return nil end,
+    checkUpdateModelTextures = function() rebuilt = true end,
+}
+BNS.Look.apply(rotShell, { look = { skin = 1 } })
+assert(rotVisual.zombieRotStage == 0, "the rot stage is zeroed, got "
+    .. tostring(rotVisual.zombieRotStage))
+assert(BNS.Look.support["no zombie rot"] == true, "and reported as working")
+assert(rotVisual.skinName == "M_Bod_Living",
+    "a living character's own skin texture is copied on, got "
+        .. tostring(rotVisual.skinName))
+assert(rebuilt, "the composited body texture is rebuilt afterwards")
+
+-- A build that will not let the field be written must report [no], not a
+-- silent success: "the call did not error" is not proof anything changed.
+BNS.Look.support = {}
+BNS.Look.broken = {}
+local stubborn = setmetatable({}, { __newindex = function() end, __index = function(t, k)
+    if k == "zombieRotStage" then return 4 end
+    return nil
+end })
+BNS.Look.apply({ getHumanVisual = function() return stubborn end,
+                 getItemVisuals = function() return nil end }, { look = {} })
+assert(BNS.Look.support["no zombie rot"] == false,
+    "a rot stage that would not move is reported as not working")
+print("zombie rot and skin texture OK")
+
+-- The moan is an ordinary emitter sound with a name the shell will give
+-- us, so it is stopped by name -- and only that name, because stopAll()
+-- would take the footsteps and BNS's own gunshots with it.
+BNS.Look.support = {}
+BNS.Look.broken = {}
+BNS.Look.hushProbe = nil
+local playing = { ["ZombieIdle"] = true, ["ZombieBite"] = true, ["ShotgunShot"] = true }
+local stopped = {}
+local voiceShell = {
+    getVoiceSoundName = function() return "ZombieIdle" end,
+    getBiteSoundName = function() return "ZombieBite" end,
+    getEmitter = function() return {
+        isPlaying = function(_, name) return playing[name] == true end,
+        stopSoundByName = function(_, name)
+            playing[name] = nil
+            table.insert(stopped, name)
+        end,
+    } end,
+}
+local vBrain = {}
+for _ = 1, 40 do BNS.Look.hush(voiceShell, vBrain) end
+assert(#stopped >= 2, "the moan and the bite are both cut, got " .. #stopped)
+assert(playing["ShotgunShot"], "and nothing else is touched")
+assert(BNS.Look.support["no zombie moan"] == true, "reported as working")
+
+-- Cutting a moan is throttled: it cannot be an engine call per tick.
+local checks = 0
+local countingShell = {
+    getVoiceSoundName = function() return "ZombieIdle" end,
+    getEmitter = function()
+        checks = checks + 1
+        return { isPlaying = function() return false end,
+                 stopSoundByName = function() end }
+    end,
+}
+local cBrain = {}
+for _ = 1, 240 do BNS.Look.hush(countingShell, cBrain) end
+assert(checks > 0, "it does check")
+assert(checks <= 240 / BNS.Look.HUSH_EVERY + 1,
+    "and not on every tick: " .. checks .. " emitter reads in 240")
+
+-- An emitter that throws is written off once, not several times a second
+-- for the rest of the session.
+BNS.Look.hushProbe = nil
+BNS.Look.support = {}
+BNS.Look.broken = {}
+local hushCalls = 0
+local angryShell = {
+    getVoiceSoundName = function() return "ZombieIdle" end,
+    getEmitter = function()
+        hushCalls = hushCalls + 1
+        error("no emitter on this build")
+    end,
+}
+local aBrain = {}
+for _ = 1, 200 do BNS.Look.hush(angryShell, aBrain) end
+assert(hushCalls == 1, "a throwing emitter is asked once, got " .. hushCalls)
+assert(BNS.Look.broken["no zombie moan"], "and the failure is reported")
+BNS.Look.hushProbe = nil
+BNS.Look.support = {}
+BNS.Look.broken = {}
+getSpecificPlayer = nil
+BNS.Look.clearSkinCache()
+print("zombie moan silencing OK (" .. #stopped .. " sounds cut)")
+
+-- 5c. Nobody turns up naked --------------------------------------------------------------
+-- addZombiesInOutfit takes an outfit *name*, and a name this build does
+-- not have leaves the shell with nothing on rather than erroring -- so
+-- the outfit list is a set of unverifiable strings with a very visible
+-- failure mode. The fix is to ask the shell what it is wearing rather
+-- than to trust the name.
+BNS.Look.support = {}
+BNS.Look.broken = {}
+local dressed = { count = 0, calls = 0 }
+local nakedShell = {
+    getHumanVisual = function() return nil end,
+    getItemVisuals = function() return nil end,
+    getWornItems = function()
+        return { size = function() return dressed.count end }
+    end,
+    dressInRandomNonSillyOutfit = function()
+        dressed.calls = dressed.calls + 1
+        dressed.count = 4
+    end,
+}
+BNS.Look.apply(nakedShell, { look = { outfit = "NoSuchOutfit" } })
+assert(dressed.count > 0, "a shell that spawned naked is dressed in something")
+assert(BNS.Look.support["clothed"] == true, "and reported as clothed")
+
+-- One that is already dressed is left alone: re-rolling their clothes on
+-- every re-assert would change what a bandit looks like as you watch.
+local before = dressed.calls
+for _ = 1, 10 do BNS.Look.apply(nakedShell, { look = {} }) end
+assert(dressed.calls == before, "an already-dressed shell is not re-dressed")
+
+-- A build that will not dress them says so rather than reporting success.
+BNS.Look.support = {}
+BNS.Look.broken = {}
+local stubbornlyNaked = {
+    getHumanVisual = function() return nil end,
+    getItemVisuals = function() return nil end,
+    getWornItems = function() return { size = function() return 0 end } end,
+    dressInRandomNonSillyOutfit = function() end,
+}
+BNS.Look.apply(stubbornlyNaked, { look = {} })
+assert(BNS.Look.support["clothed"] == false,
+    "a shell that could not be dressed is reported, not quietly passed")
+BNS.Look.support = {}
+BNS.Look.broken = {}
+print("always clothed OK")
 
 -- 6. Item visuals whose setters are per-body-part ------------------------------------
 -- The engine's ItemVisual wants setBlood(BloodBodyPartType, value); the

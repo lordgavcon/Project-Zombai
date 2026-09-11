@@ -13,6 +13,7 @@ require "BNS/BNS_Core"
 require "BNS/BNS_Loadouts"
 require "BNS/BNS_Archetypes"
 require "BNS/BNS_Persistence"
+require "BNS/BNS_Squads"
 require "BNS/BNS_Anim"
 require "BNS/BNS_Look"
 
@@ -35,7 +36,15 @@ function BNS.Spawner.rollWeapon(tier, archetype)
         local g = BNS.Loadouts.pick(guns)
         return { item = g.item, dmg = g.dmg, range = g.range, gun = true, sound = g.sound, hit = g.hit }
     end
-    local melee = def and def.melee or BNS.Loadouts.Melee[tier] or BNS.Loadouts.Melee[BNS.Tier.CIVILIAN]
+    return BNS.Spawner.rollMelee(tier, archetype)
+end
+
+-- Split out because a gunner also needs one: when the last magazine runs
+-- out they draw this and close (BNS.Combat.drawBackup).
+function BNS.Spawner.rollMelee(tier, archetype)
+    local def = BNS.Archetypes.get(archetype)
+    local melee = def and def.melee or BNS.Loadouts.Melee[tier]
+        or BNS.Loadouts.Melee[BNS.Tier.CIVILIAN]
     local m = BNS.Loadouts.pick(melee)
     return { item = m.item, dmg = m.dmg, range = m.range, gun = false }
 end
@@ -79,8 +88,10 @@ function BNS.Spawner.materialise(rec)
     local zombie = zombies:get(0)
 
     -- Calm the engine's zombie instincts; the brain drives from here.
-    zombie:setUseless(true)
-    zombie:makeInactive(true)
+    -- Only what BNS.Suppress allows: the two parking calls are off by
+    -- default because a parked shell cannot walk (see BNS_Core).
+    if BNS.Suppress.useless and zombie.setUseless then zombie:setUseless(true) end
+    if BNS.Suppress.inactive and zombie.makeInactive then zombie:makeInactive(true) end
     if zombie.setNoTeeth then zombie:setNoTeeth(true) end
     zombie:setHealth(1.5)
 
@@ -95,6 +106,7 @@ function BNS.Spawner.materialise(rec)
         targetY = rec.targetY,
         health = rec.health or 1.0,
         weapon = rec.weapon or BNS.Spawner.rollWeapon(rec.tier),
+        stamina = 1.0,
         squad = rec.squad,
         home = rec.home,
         stock = rec.stock,
@@ -104,23 +116,28 @@ function BNS.Spawner.materialise(rec)
         speechCooldown = 0,
     }
     rec.weapon = brain.weapon
+    -- Gunners carry something for when the ammunition runs out. Rolled
+    -- once and kept on the record so the same bandit always falls back to
+    -- the same weapon.
+    if brain.weapon and brain.weapon.gun then
+        rec.backup = rec.backup or BNS.Spawner.rollMelee(rec.tier, rec.archetype)
+        brain.backup = rec.backup
+    end
     zombie:getModData().BNS = brain
     BNS.Anim.init(zombie, brain)
-    -- Stop it looking like a corpse: living skin, no blood, real hair.
+    -- Stop it looking like a corpse: living skin, no blood, real hair --
+    -- and clothes. The "clothed" op runs here rather than only on the
+    -- slow re-assert because an outfit name this build does not have
+    -- leaves the shell naked from the first frame it is drawn.
     BNS.Look.apply(zombie, brain)
     -- Vehicle owners get their ride placed back beside them.
     if BNS.Vehicles then BNS.Vehicles.onMaterialise(zombie, brain, rec) end
 
-    -- Show the weapon in hand.
-    if brain.weapon and brain.weapon.item then
-        local w = instanceItem(BNS.Loadouts.item(brain.weapon.item))
-        if w then
-            zombie:setPrimaryHandItem(w)
-            if brain.weapon.gun and w.setTwoHandWeapon then
-                zombie:setSecondaryHandItem(w)
-            end
-        end
-    end
+    -- Show the weapon in hand -- in both hands when it takes both. The
+    -- old code only ever filled the off hand for guns, and decided even
+    -- that by testing for a *setter* on the item, so every rifle, axe,
+    -- bat and spear was carried and swung one-handed.
+    BNS.Anim.equip(zombie, brain)
 
     rec.live = true
     zombie:getModData().BNS_recId = rec.id
@@ -147,16 +164,50 @@ end
 -- Fresh spawns ----------------------------------------------------------
 
 -- Find an off-screen square near (but not on top of) a player.
+-- Where a *new* NPC comes into the world.
+--
+-- Never on ground the player has streamed in: an NPC that pops into
+-- existence inside the loaded area can appear in front of you, and at 40
+-- tiles in an open field that is on screen. They are created as records
+-- out in the unloaded world instead, and get a body only when you walk
+-- far enough that their square loads (BNS.Main.boundaryTick) -- so they
+-- are always found rather than conjured.
+--
+-- The band is not a guess at how much the game streams: each attempt
+-- steps further out and the loop keeps going until it finds ground the
+-- engine has *not* loaded, so it is correct whatever the streaming
+-- distance turns out to be. Nothing about the square can be checked
+-- (there is no square to check), which is fine -- materialise validates
+-- it later, and a record that cannot be embodied where it stands moves on.
+BNS.Spawner.SPAWN_MIN = 70   -- tiles from the player to start looking
+BNS.Spawner.SPAWN_STEP = 25  -- how much further out each attempt goes
+BNS.Spawner.SPAWN_TRIES = 12
+
+-- Bandits come in groups, always, and the same size of group whoever
+-- they are. A lone one is the *survivor* of a group, not how they arrive.
+
+-- Scatter a squad member around the picked point without letting them
+-- drift onto streamed ground: the picked square being unloaded says
+-- nothing about the one two tiles east of it, and the guarantee is per
+-- NPC, not per group.
+function BNS.Spawner.scatter(x, y)
+    for _ = 1, 6 do
+        local sx = x + ZombRand(-2, 3)
+        local sy = y + ZombRand(-2, 3)
+        if not BNS.squareLoaded(sx, sy, 0) then return sx, sy end
+    end
+    return x, y -- the picked square itself is known good
+end
+
 local function pickSpawnSquare(player)
-    for _ = 1, 10 do
+    for attempt = 1, BNS.Spawner.SPAWN_TRIES do
         local angle = ZombRandFloat(0, 2 * math.pi)
-        local distArea = ZombRand(40, 80)
-        local x = math.floor(player:getX() + math.cos(angle) * distArea)
-        local y = math.floor(player:getY() + math.sin(angle) * distArea)
-        local sq = getCell():getGridSquare(x, y, 0)
-        if sq and sq:isFree(false) and not sq:isSolidTrans() then
-            return x, y
-        end
+        local reach = BNS.Spawner.SPAWN_MIN
+            + (attempt - 1) * BNS.Spawner.SPAWN_STEP
+            + ZombRand(BNS.Spawner.SPAWN_STEP)
+        local x = math.floor(player:getX() + math.cos(angle) * reach)
+        local y = math.floor(player:getY() + math.sin(angle) * reach)
+        if not BNS.squareLoaded(x, y, 0) then return x, y end
     end
     return nil
 end
@@ -171,28 +222,41 @@ function BNS.Spawner.spawnBanditNear(player)
     local archetype = BNS.Archetypes.roll(x, y)
     local def = BNS.Archetypes.get(archetype)
     local tier = def and def.tier or BNS.Tier.CIVILIAN
-    local squadSize = 1
-    local squadId = nil
-    if tier == BNS.Tier.MILITIA then
-        squadSize = ZombRand(2, 5)
-        squadId = "squad_" .. tostring(ZombRand(100000))
-    elseif tier == BNS.Tier.THUG and ZombRand(100) < 40 then
-        squadSize = 2
-        squadId = "squad_" .. tostring(ZombRand(100000))
-    end
+    -- Bandits travel together. Every group gets a squad id and an entry
+    -- in state.squads, which is what marks it as one BNS_Squads keeps
+    -- together -- garrisons and raid parties deliberately have neither,
+    -- because they already have somewhere to be.
+    local squadSize = ZombRand(BNS.Behaviour.squadMin, BNS.Behaviour.squadMax + 1)
+    local squadId = "squad_" .. tostring(ZombRand(1000000))
+    BNS.Squads.create(BNS.Persistence.getState(), squadId, x, y)
+    local made = 0
     for i = 1, squadSize do
-        local rec = BNS.Persistence.newRecord(BNS.Role.BANDIT, tier, x + ZombRand(-2, 3), y + ZombRand(-2, 3), 0)
+        -- Checked per member, not per group: a squad of five must not be
+        -- able to walk the record pool past its ceiling in one call.
+        if BNS.Persistence.count() >= BNS.recordCeiling() then break end
+        local sx, sy = BNS.Spawner.scatter(x, y)
+        local rec = BNS.Persistence.newRecord(BNS.Role.BANDIT, tier, sx, sy, 0)
         rec.squad = squadId
         rec.archetype = archetype
         rec.weapon = BNS.Spawner.rollWeapon(tier, archetype)
-        BNS.Spawner.materialise(rec)
+        made = made + 1
+        -- Deliberately not materialised here: the square is unloaded by
+        -- construction, and the boundary gives them a body when the
+        -- player reaches them.
+    end
+    if made == 0 then
+        -- The ceiling stopped every member: do not leave an empty squad
+        -- behind for the anchor pass to carry around the map.
+        BNS.Persistence.getState().squads[squadId] = nil
+        return
     end
     BNS.log("spawned bandit group archetype=" .. archetype .. " tier=" .. tier
-        .. " size=" .. squadSize .. " at " .. x .. "," .. y)
+        .. " size=" .. made .. " at " .. x .. "," .. y)
 end
 
 -- Spawn a neutral survivor or trader near the player.
 function BNS.Spawner.spawnSurvivorNear(player)
+    if BNS.Persistence.count() >= BNS.recordCeiling() then return end
     local x, y = pickSpawnSquare(player)
     if not x then return end
     local opts = BNS.Options()
@@ -208,7 +272,8 @@ function BNS.Spawner.spawnSurvivorNear(player)
             end
         end
     end
-    BNS.Spawner.materialise(rec)
+    -- Virtual by construction, like bandits: the square is unloaded, and
+    -- the boundary embodies them when the player gets there.
     BNS.log("spawned " .. role .. " at " .. x .. "," .. y)
 end
 

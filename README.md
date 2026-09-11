@@ -19,6 +19,35 @@
 - **Scavenging** — NPCs loot buildings for supplies and equipment as they travel. They take the valuables (weapons, ammo, food, meds) and leave the evidence: low-value items stay in the container and a piece or two ends up scattered on the floor, so a half-emptied cupboard with junk around it tells you someone living has been through. Looted spots are skipped for a few in-game days, kill a scavenger and their haul drops with them, and traders convert what they find into sale stock — so trader inventories genuinely restock from the world. Player bases are never quietly scavenged; only raids touch your stuff. Sandbox-toggleable.
 - **Vehicles** — NPCs claim parked vehicles (never ones at your base), stash their scavenged haul in the *real* trunk — raid the trunk or steal the whole vehicle and the loot is yours — and travel with them: while off-screen an NPC with a vehicle covers ~5× the ground of one on foot, and the pair rematerialise together, so you'll meet the same scavenger and their loaded car towns apart. Near players there's no faked driving: NPCs are found parked, walking to, or loading their vehicle, and "drive off" by despawning at it. About half of base raids arrive with a pickup truck; everything raiders steal from you goes into its trunk, so wiping out the crew before they leave gets your stuff back.
 - **Survivors & traders** — neutral NPCs wander the world. Right-click a survivor to talk (they drop rumours, including militia base warnings); right-click a trader to open a barter window and trade your goods against their stock, valued item-for-item. **Traders stop and turn to face you** as soon as you get within about five tiles, so you can actually catch one; survivors halt once you're right beside them.
+- **They fight like players, not like turrets.** A swing is a windup, a
+  contact and a recovery: the axe comes up before it comes down, and if
+  you step out of reach while it is up, the bandit commits and whiffs —
+  and a whiff leaves them open longer than a hit does. Heavier weapons are
+  slower through every beat, swinging is tiring, and a winded bandit
+  swings slower and backs off to get their breath. Firearms carry a real
+  magazine: they fire in bursts, run dry, shout *"Reloading!"* and break
+  contact to do it, and when the spares are gone they drop the gun to a
+  melee backup and come for you. Accuracy is earned by holding still —
+  a bandit who has been walking shoots badly — and they won't shoot
+  through a wall. Let one walk into your face and it gives ground rather
+  than surrendering its range advantage — and walk right up against one
+  and it shoves you off and brings the gun back up, where a zombie would
+  lunge. They turn to face what they are swinging at, and they neither
+  look, sound nor move like the dead — living skin rather than a corpse's,
+  no zombie moaning, and no zombie lunge. Stand against a hostile one and
+  it swings at you; stand against a survivor or trader and they simply
+  stand there, because whether an NPC will fight you is their role and not
+  whatever they happen to be doing. Shove one and they go down
+  without taking a scratch — a push is not an attack — and while they are
+  on the floor they stop fighting entirely; health only moves when you
+  swing at them or stomp on them down there. Two-handed weapons are carried
+  and swung in two hands, and each swing clip is held for the whole
+  recovery beat, so the animation plays out rather than being cut off part
+  way through. The whole attack pace is one
+  sandbox slider (**NPC attack speed**, default 0.5 — half speed), so if
+  you want fights faster or slower than shipped, that is the only number
+  to move; it changes how often they attack, never how hard or how
+  accurately.
 - **NPCs amble, they don't march** — wandering is a slow walk with pauses. On reaching somewhere an NPC usually stands around for ten to fifty seconds before picking a new destination, so a street with people on it looks lived-in rather than like a parade. Zombies nearby cancel the standing about; a player watching does not.
 - **Persistence** — every NPC is a record in global mod data. NPCs near players are fully simulated ("live"); distant ones are *virtualised* — despawned but still travelling the map abstractly — and rematerialise when you come near their current position. State survives save/load and server restarts.
 - **Multiplayer compatible** — all AI, combat, robbery, raid and trade logic runs on the server; clients only render speech/UI and send trade proposals, which the server validates (no client-side item forging). The same server code runs in-process in single player, so SP and MP share one code path.
@@ -141,10 +170,10 @@ Debug panel*). Five tabs:
 | Tab | What it does |
 |---|---|
 | World | Live/virtual NPC counts, sandbox options (click a boolean to toggle it live), every known point of interest (fortified ones flagged with their garrison size) with **Teleport to POI** and Fortify nearest, and detected player bases with raid-cooldown countdowns |
-| NPCs | Every NPC with program, health, archetype, distance and flags; select one to Go to / Bring here / Kill / cycle its program / give it a vehicle / swarm it with zombies. Also toggles the overlay |
+| NPCs | Every NPC with program, health, archetype, distance and flags — including what each one knows about you and how: `[sees you]`, `[lost n]` after losing sight, `[heard n]` when they are walking towards a noise rather than a sighting; select one to Go to / Bring here / Kill / cycle its program / give it a vehicle / swarm it with zombies. Also toggles the overlay |
 | Spawn | One click per archetype (farmer, city folk, thug, police, firefighter, ex-military) plus survivor and trader, 1–5 at a time as a squad; raid me, fortify a POI, drop a loot box, spawn a horde, clear all NPCs |
-| Scenarios | Ten one-click behaviour tests — warning shot, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |
-| Anim lab | Player-body status, per-action buttons to fire and cycle the candidate engine calls for swing/shoot/hit/grabbed, and **PROBE** — a pass/fail line for every step of the pipeline (are snapshots arriving, does `SurvivorFactory` exist, does `IsoPlayer.new` construct, can a puppet be found and actually hidden), which is the fastest way to turn "bandits still look like zombies" into a specific missing call |
+| Scenarios | Eleven one-click behaviour tests — gunshots & noise, warning shot, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |
+| Anim lab | Force any `BNSAnim` mode on the selected NPC so each overlay node can be confirmed one at a time, plus **PROBE** — the shell read back as the engine sees it: the AnimState it is actually in (`getCurrentStateName` / `getAnimationStateName`, which is what decides *which* directory's nodes can play), the `BNSNPC` / `BNSAnim` / `Weapon` variables, whether it still holds the path we ordered, and how far it moved since the last probe. Toggles for the `useless` / `inactive` / `clearTarget` suppression calls sit alongside it, so "do these park the shell?" can be answered in game |
 | Log | The mod's own `[BNS]` event log, newest first, without tailing `console.txt` |
 
 The **overlay** (NPCs tab) is the main validation tool: it draws each NPC's current
@@ -159,9 +188,83 @@ Non-admin requests are dropped and logged.
 ## Known limitations / TODO
 
 - Not yet play-tested against 42.20 — B42's Lua API is still moving, and a
-  few calls (e.g. `setUseless`, `IsoBarricade.AddBarricadeToObject`,
-  outfit names) may need renaming against the current javadocs. Everything
-  is guarded where practical; check `console.txt` for `[BNS]` lines.
+  few calls (e.g. `IsoBarricade.AddBarricadeToObject`, outfit names) may
+  need renaming against the current javadocs. Everything is guarded where
+  practical; check `console.txt` for `[BNS]` lines.
+- **Firearm behaviour is simulated, not driven by real ammunition.**
+  Magazine sizes, reload times and burst discipline live in
+  `BNS.Loadouts.Magazines` and are gameplay numbers, not the values of the
+  vanilla items — an NPC does not consume real bullets from an inventory,
+  and reloading is a timer rather than a `ISReloadWeaponAction`. Tune the
+  table if a gun feels wrong. The reload has no sound of its own, because
+  a sound name cannot be verified offline; the tell is the weapon coming
+  down, the callout, and the bandit giving ground.
+- **You can lose them.** NPCs follow what they last *saw*, not where you
+  actually are: break line of sight and the place they are walking to
+  stops moving. They arrive at it, look around for a few seconds, and go
+  back to wandering — and they will not spot you through a wall to begin
+  with. They chase at a person's run rather than a zombie's sprint
+  (tunable: **NPC chase speed**), so choosing your ground is a real way
+  out of a fight instead of a delay before one.
+- **Gunfire carries.** A shot — yours or theirs — is heard for about
+  seventy tiles, a door being hammered for thirty, and the odds of any one
+  NPC reacting fall off towards the edge of that, so a shot brings the
+  street rather than the district and the ones who come do not arrive as a
+  single block. A bandit who hears it walks to where the bang came from,
+  looks around and gives up, exactly as they do when they lose sight of
+  you; a survivor or trader goes the other way. Anyone who can already see
+  you ignores the noise — they have better information — and anyone
+  already in a fight is too busy to care. Firing a gun to pull a horde off
+  a building now pulls whoever else is in earshot as well.
+- **Hitting one knocks them off their beat.** A solid hit staggers an NPC:
+  the swing they were part way through is gone, their aim is spoiled, and
+  they cannot act until they recover — so landing one buys you the next
+  one, and a fight is something you can win a moment in rather than two
+  damage numbers trading. Zombies stagger them too.
+- **A bandit's tier is their kit, not their personality.** Every bandit
+  robs on the same odds, breaks off at the same wound, stands their ground
+  as often, and hits a door as hard. What separates a desperate civilian
+  from a rogue militiaman is what they are carrying and how much
+  punishment they soak — not a different set of rules to learn.
+- **Bandits come in groups and stay in them.** Nobody arrives alone —
+  the desperate travel in pairs, thugs run with a crew of two to four,
+  militia move as a fire team of three to five — and the group holds
+  together within about twenty tiles whether you are watching or not.
+  They mill around each other, and when one of them decides it is time to
+  move on the whole group goes rather than one bandit wandering off. A
+  lone bandit is the *survivor* of a group, not how they arrive.
+- **NPCs are found, not conjured.** New ones are created out in the
+  unloaded world and only take a body when the ground they are standing
+  on streams in, so nobody ever pops into existence in front of you —
+  walk far enough and the NPC who was already "there" becomes real. They
+  hand the body back when that ground goes, keeping the position they had
+  walked to. (Previously the wake-up used a radius around the player,
+  which is not the same shape as the loaded world: an NPC that drifted
+  into the gap between the two was never embodied and never moved again
+  for the rest of the save.)
+- **NPC shells are held out of the engine's own zombie behaviour at
+  contact range.** Clearing a shell's target cannot win that race — the
+  engine re-acquires inside the same update — so while an NPC is stood
+  within arm's reach of a player its engine state machine is held still,
+  which is the only thing that stops a lunge starting. It is released the
+  moment they need to move and dropped unconditionally after ten seconds,
+  and the whole mechanism can be switched off from the Anim lab
+  (`lockState`) if a build dislikes it.
+- **NPC shells are kept out of the engine's ballistics path.** B42 gives a
+  character aiming a firearm a `BallisticsController` that reads the
+  *player* aiming reticle, indexed by player number — and a zombie's is
+  -1, so the moment a gun-carrying shell looks to the engine like it is
+  aiming, the game crashes to the desktop. BNS simulates every shot
+  itself and never sets an engine combat-action flag on a shell;
+  `BNS.Combat.disarmBallistics` clears any controller one picks up anyway.
+  If you add engine calls to the shells, keep to animation *variables*.
+- **Shell suppression is deliberately minimal.** `BNS.Suppress` in
+  `BNS_Core.lua` gates the calls that stop a shell behaving like a zombie.
+  Only clearing its target is on by default — `setUseless` and
+  `makeInactive` were unverified guesses at "calm the engine's instincts",
+  and a parked character cannot walk, which is what NPCs standing still
+  looked like. Both can be switched back on from the Anim lab and the
+  effect measured with PROBE.
 - **Arming a shell trips a vanilla bug.** `setPrimaryHandItem` fires the
   engine's `OnEquipPrimary` event, and B42's own `FishingHandler.lua`
   assumes the character is a player, so it throws
@@ -182,17 +285,31 @@ Non-admin requests are dropped and logged.
   classes) on them; the AnimSet overlays in `42/media/AnimSets/zombie/`
   select player clips on those conditions, so a swing matches the weapon in
   hand. Every clip name in those overlays is taken from the game's own
-  `media/AnimSets/player/`, not guessed.
+  `media/AnimSets/player/`, not guessed. The overlays are **generated** by
+  `tools/gen_animsets.lua` — one table of fifteen nodes emitted into every
+  AnimState a shell can be in; edit the generator and re-run it, never the
+  XML. (Until this was fixed the overlays wrote STRING conditions as
+  `<m_Value>` instead of `<m_StringValue>`, so no node ever matched; and
+  then the generator's own header comment contained `--`, which is illegal
+  inside an XML comment, so every node was rejected at load instead. Both
+  looked identical in game — NPCs using the vanilla zombie clips — and
+  both are now covered by the test suite, the second by parsing every
+  overlay with a real XML parser.)
   A client-side `IsoPlayer` proxy layer was tried and **removed**: on
   42.20.4 every step verified — descriptor, constructor, square
   registration, puppet hiding — and the engine still never drew the
   character, which left NPCs invisible. B42 does not appear to render
   non-controlled `IsoPlayer` instances.
-- Which *state directories* the zombie AnimSet exposes (`idle`,
-  `walktowards`, `attack`) is still assumed rather than read from the
-  game's `media/AnimSets/zombie/`. If a mode never plays, that is the first
-  thing to check — the debug panel's Anim lab forces one mode at a time on
-  a selected NPC so each node can be confirmed individually.
+- Which *state directories* the zombie AnimSet exposes is still read off
+  the class names rather than the game's own `media/AnimSets/zombie/`, so
+  every node is generated into all six a driven shell could be in (`idle`,
+  `zombieidle`, `pathfind`, `walktoward`, `walktowards`, `attack`) rather
+  than a single guess: an AnimNode only competes inside its own state
+  directory, and a directory the build does not use is simply never read.
+  A 42.20 run confirms the game reads all six. The Anim lab's **PROBE**
+  prints the shell's live `getCurrentStateName` / `getAnimationStateName`
+  and the clip it is actually playing, so the list can be trimmed to the
+  truth in `tools/gen_animsets.lua`.
 - Animation variables are set server-side. If MP clients show zombie
   animations while single player shows human ones, they are not
   replicating and the fix is a client-side mirror pass — the variables are
@@ -207,8 +324,14 @@ Non-admin requests are dropped and logged.
   bare-handed.
 - POI ground cues filter their item ids against what the build actually
   ships (`ScriptManager:getItem`), so an unknown id is skipped rather than
-  erroring — but if a whole pool is missing, that cue quietly disappears;
-  `[BNS]` logs which pool came up empty. Those pools are refuse only
+  erroring, and a pool that comes up empty on your build no longer takes
+  its cue with it — another pool from the same zone covers those squares
+  instead, so a held stronghold still looks lived in. (42.20 had none of
+  the four casing ids the mod listed, and the approach quietly lost that
+  share of its litter.) The casing ids are still a candidate list rather
+  than something verifiable offline: **Fortify POI** in the debug panel
+  now prints what each pool resolved to on your build, so whichever one is
+  real can be kept and the rest deleted. Those pools are refuse only
   (spent brass, torn cloth, ash, litter): a stronghold's actual supplies
   go into its containers, never onto the floor. Blood splatter and
   positional camp audio are attempted and degrade silently if 42.20's

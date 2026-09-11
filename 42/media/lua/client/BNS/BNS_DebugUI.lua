@@ -35,6 +35,7 @@ local SPAWN_BUTTONS = {
 }
 
 local SCENARIOS = {
+    { name = "noise",     label = "Gunshots + noise" },
     { name = "warning",   label = "Warning shout" },
     { name = "robbery",   label = "Robbery" },
     { name = "doors",     label = "Door rattle" },
@@ -233,6 +234,27 @@ function BNS.DebugUI:createChildren()
                 self:send("debugAnim", { id = self.selectedId, mode = mode })
             end))
     end
+    -- Read the shell instead of guessing: which AnimState it is really
+    -- in, and whether the engine still holds the path we ordered.
+    table.insert(self.animButtons, addButton("PROBE", 90, 0, 2, function()
+        if not self.selectedId then
+            BNS.DebugUI.onResult({ text = "select an NPC on the NPCs tab first" })
+            return
+        end
+        self:send("debugAnimProbe", { id = self.selectedId })
+    end))
+    table.insert(self.animButtons, addButton("useless", 90, 1, 2, function()
+        self:send("debugSuppress", { key = "useless" })
+    end))
+    table.insert(self.animButtons, addButton("inactive", 90, 2, 2, function()
+        self:send("debugSuppress", { key = "inactive" })
+    end))
+    table.insert(self.animButtons, addButton("clearTarget", 90, 3, 2, function()
+        self:send("debugSuppress", { key = "clearTarget" })
+    end))
+    table.insert(self.animButtons, addButton("lockState", 90, 4, 2, function()
+        self:send("debugSuppress", { key = "lockState" })
+    end))
 
     -- Scenario buttons
     self.scenarioButtons = {}
@@ -371,9 +393,36 @@ function BNS.DebugUI:rebuildList()
             local flags = ""
             if npc.vehicle then flags = flags .. " [car]" end
             if npc.door then flags = flags .. " [door]" end
+            if npc.fromSquad then
+                flags = flags .. (npc.fromSquad > 20 and " [STRAY " or " [sq ")
+                    .. npc.fromSquad .. "]"
+            end
             if npc.grabbed then flags = flags .. " [grabbed]" end
             if npc.warned then flags = flags .. " [warned]" end
-            if not npc.live then flags = flags .. " [virtual]" end
+            if npc.reloading then flags = flags .. " [reloading]"
+            elseif npc.ammo then flags = flags .. string.format(" [%d+%dmag]", npc.ammo, npc.mags or 0) end
+            if npc.down then flags = flags .. " [DOWN]" end
+            if npc.staggered then flags = flags .. " [stagger]" end
+            if npc.heard then
+                flags = flags .. " [heard " .. (npc.lostFor or 0) .. "]"
+            elseif npc.lostFor and npc.lostFor > 0 then
+                flags = flags .. " [lost " .. npc.lostFor .. "]"
+            elseif npc.seen then flags = flags .. " [sees you]" end
+            if (npc.lunges or 0) > 0 then flags = flags .. " [zed x" .. npc.lunges .. "]" end
+            if (npc.jams or 0) > 0 then flags = flags .. " [JAM x" .. npc.jams .. "]" end
+            if npc.held then flags = flags .. " [held]" end
+            if npc.swing then flags = flags .. " [" .. npc.swing .. "]" end
+            if npc.stamina and npc.stamina < 0.6 then
+                flags = flags .. string.format(" [winded %d%%]", math.floor(npc.stamina * 100))
+            end
+            if not npc.live then
+                if npc.capped then flags = flags .. " [virtual/capped]"
+                elseif npc.onLoaded then flags = flags .. " [virtual/WAITING]"
+                else flags = flags .. " [virtual]" end
+                if (npc.wakeFails or 0) > 0 then
+                    flags = flags .. " [wake x" .. npc.wakeFails .. "]"
+                end
+            end
             local text = string.format("%-16s %-11s %-11s hp%3d%% %4dm  pack %d%s",
                 npc.name or "?", npc.archetype or npc.role, npc.program or "?",
                 math.floor((npc.health or 1) * 100), npc.dist, npc.loot, flags)
@@ -388,6 +437,19 @@ function BNS.DebugUI:rebuildList()
         self.list:addItem("Select an NPC on the NPCs tab, then force a mode below and watch", {})
         self.list:addItem("it. A mode that does nothing means that node is not matching:", {})
         self.list:addItem("check the clip name and the conditions in its XML.", {})
+        self.list:addItem("", {})
+        self.list:addItem("PROBE reads the shell: what its visual says about itself", {})
+        self.list:addItem("(isZombie / rot stage / skin texture) and which restyling ops landed,", {})
+        self.list:addItem("the clip it is actually playing (a Bob_*", {})
+        self.list:addItem("name means a BNS node won; anything else means the overlays are not", {})
+        self.list:addItem("being selected), the AnimState it is really in (an AnimNode only", {})
+        self.list:addItem("competes inside its own state folder), the animation variables as the", {})
+        self.list:addItem("engine sees them, whether it still holds the path we gave it, and how", {})
+        self.list:addItem("far it moved since the last probe.", {})
+        self.list:addItem("", {})
+        self.list:addItem("useless / inactive / clearTarget toggle the shell-suppression calls.", {})
+        self.list:addItem("The first two are off by default: neither is verified, and a parked", {})
+        self.list:addItem("shell cannot walk. Turn one on and probe again to see what it costs.", {})
         self.list:addItem("", {})
         for _, line in ipairs(self.results) do
             self.list:addItem("  " .. line, { colour = { 0.7, 1.0, 0.7 } })

@@ -50,6 +50,24 @@ BNS.Loadouts.Guns = {
     },
 }
 
+-- Magazine size, reload time (engine ticks, 60/s), spare magazines and
+-- burst discipline per gun. Kept here rather than on every loadout line
+-- so all the archetypes' guns share one place to tune, and so a gun that
+-- appears in two tables cannot end up with two different reloads.
+-- `rof` is the gap between rounds *inside* a burst; the pause between
+-- bursts is two to five times it (see BNS.Combat.fireRound).
+BNS.Loadouts.MagazineDefault =
+    { mag = 8,  reload = 210, spares = 1, burst = 1, rof = 50 }
+
+BNS.Loadouts.Magazines = {
+    ["Base.Pistol"]              = { mag = 12, reload = 150, spares = 2, burst = 1, rof = 40 },
+    ["Base.Revolver"]            = { mag = 6,  reload = 240, spares = 1, burst = 1, rof = 45 },
+    ["Base.Shotgun"]             = { mag = 5,  reload = 300, spares = 1, burst = 1, rof = 55 },
+    ["Base.DoubleBarrelShotgun"] = { mag = 2,  reload = 180, spares = 2, burst = 2, rof = 30 },
+    ["Base.AssaultRifle"]        = { mag = 25, reload = 210, spares = 1, burst = 3, rof = 12 },
+    ["Base.HuntingRifle"]        = { mag = 5,  reload = 270, spares = 1, burst = 1, rof = 90 },
+}
+
 -- Loot dropped on death, item -> chance (%).
 BNS.Loadouts.Drops = {
     [BNS.Tier.CIVILIAN] = {

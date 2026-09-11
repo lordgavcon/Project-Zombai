@@ -21,7 +21,11 @@ require "BNS/BNS_Archetypes"
 require "BNS/BNS_POIs"
 require "BNS/BNS_Persistence"
 require "BNS/BNS_Spawner"
+require "BNS/BNS_Squads"
 require "BNS/BNS_Programs"
+require "BNS/BNS_Combat"
+require "BNS/BNS_Senses"
+require "BNS/BNS_Look"
 require "BNS/BNS_Bases"
 require "BNS/BNS_Raids"
 require "BNS/BNS_Locks"
@@ -114,13 +118,44 @@ function BNS.Debug.snapshot(player)
             x = math.floor(x), y = math.floor(y),
             dist = math.floor(BNS.dist(px, py, x, y)),
             live = shell ~= nil,
+            -- Why a record has no body: standing on ground the game has
+            -- not streamed, waiting for a slot, or failing to embody
+            -- where it stands. A virtual NPC that is none of these and
+            -- stays virtual is the bug this replaced.
+            onLoaded = shell == nil and BNS.squareLoaded(x, y, rec.z) or false,
+            capped = rec.capped or false,
+            wakeFails = rec.wakeFails or 0,
             loot = (brain and brain.loot and #brain.loot) or (rec.loot and #rec.loot) or 0,
             stock = (brain and brain.stock and #brain.stock) or (rec.stock and #rec.stock) or 0,
             vehicle = (brain and brain.vehicle ~= nil) or (rec.vehicle ~= nil),
             squad = rec.squad,
+            -- How far this one is from its group. A squad that is doing
+            -- its job keeps every member inside BNS.Squads.COHESION.
+            fromSquad = (function()
+                if not rec.squad then return nil end
+                local ax, ay = BNS.Squads.anchor(rec.squad)
+                if not ax then return nil end
+                return math.floor(BNS.dist(x, y, ax, ay))
+            end)(),
             weapon = rec.weapon and rec.weapon.item or nil,
             gun = rec.weapon and rec.weapon.gun or false,
             warned = brain and brain.warned or false,
+            -- What they know about you, which is what pursuit steers by.
+            lostFor = brain and brain.lostFor or nil,
+            seen = brain and brain.seenX ~= nil or false,
+            -- Where that knowledge came from: an ear reads very
+            -- differently from an eye when you are watching a search.
+            heard = brain and brain.heard or false,
+            ammo = brain and brain.ammo and brain.ammo.left or nil,
+            mags = brain and brain.ammo and brain.ammo.spares or nil,
+            reloading = brain and brain.reloadTimer ~= nil or false,
+            stamina = brain and brain.stamina or nil,
+            swing = brain and brain.swingPhase or nil,
+            down = brain and BNS.Combat.isDown(brain) or false,
+            staggered = brain and BNS.Combat.isStaggered(brain) or false,
+            lunges = brain and brain.lunges or 0,
+            jams = brain and brain.zJams or 0,
+            held = brain and brain.stateLocked or false,
             grabbed = brain and brain.grabbedTimer ~= nil or false,
             door = brain and brain.door ~= nil or false,
             paths = brain and brain.pathCount or 0,
@@ -248,6 +283,136 @@ function BNS.Debug.forceAnim(player, args)
         brain.weapon and tostring(brain.weapon.item) or "unarmed"))
 end
 
+-- Read the live shell rather than guessing at it.
+--
+-- Two things about the shell can only be learned from a running game,
+-- and both have silently broken animation before:
+--
+--   * which AnimState the shell is actually in -- an AnimNode only
+--     competes inside its own state directory, so a node filed under a
+--     state the shell never enters can never play. The overlays are
+--     generated into every plausible state (tools/gen_animsets.lua); this
+--     prints the name the engine reports so the list can be trimmed to
+--     the truth.
+--   * whether the engine is holding the path we ordered. A shell that
+--     will not walk reads identically to one that is never asked to.
+--
+-- Everything here is a read, and every method is checked for presence
+-- before it is called (a pcall on a missing method still dumps a stack
+-- trace, so probing is not free).
+local function readShell(shell, name)
+    if not shell[name] then return nil end
+    local ok, value = pcall(function() return shell[name](shell) end)
+    if not ok then return "[err]" end
+    if value == nil then return "nil" end
+    return tostring(value)
+end
+
+function BNS.Debug.animProbe(player, args)
+    local shell = BNS.Debug.findNPC(args.id)
+    if not shell then note(player, "NPC not loaded: " .. tostring(args.id)) return end
+    local brain = BNS.brain(shell)
+
+    note(player, string.format("%s: state=%s anim=%s action=%s",
+        brain.name,
+        readShell(shell, "getCurrentStateName") or "[no getCurrentStateName]",
+        readShell(shell, "getAnimationStateName") or "[no getAnimationStateName]",
+        readShell(shell, "getActionStateName") or "-"))
+    local function handOf(getter)
+        if not shell[getter] then return "-" end
+        local ok, it = pcall(function() return shell[getter](shell) end)
+        if not ok then return "[err]" end
+        if not it then return "empty" end
+        local okName, name = pcall(function() return it:getFullType() end)
+        return okName and tostring(name) or "held"
+    end
+    -- What the visual says about itself, and what the restyling managed.
+    -- "The op did not error" has never been proof anything changed on
+    -- screen, and isZombie / rot stage / skin texture are the three the
+    -- eye is actually reading.
+    if BNS.Look and BNS.Look.describe then
+        note(player, "  visual: " .. BNS.Look.describe(shell))
+        for _, line in ipairs(BNS.Look.report()) do note(player, "  " .. line) end
+    end
+    note(player, string.format("  hands: main=%s off=%s",
+        handOf("getPrimaryHandItem"), handOf("getSecondaryHandItem")))
+    note(player, string.format("  vars: BNSNPC=%s BNSAnim=%s Weapon=%s (brain mode %s)",
+        tostring(shell.getVariable and shell:getVariable("BNSNPC")),
+        tostring(shell.getVariable and shell:getVariable("BNSAnim")),
+        tostring(shell.getVariable and shell:getVariable("Weapon")),
+        tostring(brain.animMode)))
+    -- Times the shell was caught in a zombie action state (a lunge above
+    -- all) with a player close. Should stay at zero: anything else means
+    -- the target suppression is losing the race and the player is seeing
+    -- zombie behaviour.
+    note(player, string.format(
+        "  zombie states entered: %d, jammed: %d, machine held: %s (state now: %s)",
+        brain.lunges or 0, brain.zJams or 0, tostring(brain.stateLocked == true),
+        BNS.Combat.stateName(shell) or "?"))
+    note(player, string.format("  path: hasPath=%s moving=%s target=%s,%s orders=%d lost=%d",
+        readShell(shell, "hasPath") or "-",
+        readShell(shell, "isMoving") or "-",
+        readShell(shell, "getPathTargetX") or "-",
+        readShell(shell, "getPathTargetY") or "-",
+        brain.pathCount or 0, brain.pathLost or 0))
+
+    -- The clip the engine is actually playing. This is the observation
+    -- that settles "are they using player animations?" without anyone
+    -- having to squint at a bandit: a Bob_* name means a BNS node won,
+    -- anything else means the overlays are not being selected. (All
+    -- ninety of them once failed to load over an XML comment, and from
+    -- the outside that was indistinguishable from them losing.)
+    if shell.dbgGetAnimTrackName then
+        local tracks = {}
+        for i = 0, 3 do
+            local ok, name = pcall(function() return shell:dbgGetAnimTrackName(i) end)
+            if not ok then
+                table.insert(tracks, "[err]")
+                break
+            end
+            if name == nil or tostring(name) == "" then break end
+            local weight = "?"
+            if shell.dbgGetAnimTrackWeight then
+                local okW, w = pcall(function() return shell:dbgGetAnimTrackWeight(i) end)
+                if okW and w then weight = string.format("%.2f", w) end
+            end
+            table.insert(tracks, tostring(name) .. "@" .. weight)
+        end
+        note(player, "  playing: " .. (#tracks > 0 and table.concat(tracks, ", ")
+            or "[no tracks reported]"))
+    else
+        note(player, "  playing: [no dbgGetAnimTrackName on this build]")
+    end
+
+    -- Displacement since the last probe: the only observation that
+    -- actually proves the shell is walking.
+    local x, y = shell:getX(), shell:getY()
+    if brain.probeX then
+        note(player, string.format("  moved %.2f tiles since the last probe",
+            BNS.dist(x, y, brain.probeX, brain.probeY)))
+    else
+        note(player, "  probe again in a few seconds to measure movement")
+    end
+    brain.probeX, brain.probeY = x, y
+
+    note(player, string.format("  suppress: clearTarget=%s useless=%s inactive=%s",
+        tostring(BNS.Suppress.clearTarget), tostring(BNS.Suppress.useless),
+        tostring(BNS.Suppress.inactive)))
+end
+
+-- Flip one of the unverified "calm the shell" engine calls, so whether
+-- either is what stops NPCs walking can be answered in game.
+function BNS.Debug.setSuppress(player, args)
+    local key = args.key
+    if BNS.Suppress[key] == nil then
+        note(player, "unknown suppression flag: " .. tostring(key))
+        return
+    end
+    BNS.Suppress[key] = not BNS.Suppress[key]
+    note(player, "suppress." .. key .. " = " .. tostring(BNS.Suppress[key])
+        .. " (applies to shells spawned or ticked from now on)")
+end
+
 function BNS.Debug.teleport(player, args)
     local shell = BNS.Debug.findNPC(args.id)
     if not shell then note(player, "NPC not loaded") return end
@@ -307,6 +472,13 @@ function BNS.Debug.claimPOI(player)
         radius = best.radius, stockedSquares = {} }
     BNS.Bases.createGarrison(state, best)
     note(player, "militia claimed " .. best.name .. " (" .. math.floor(bestD) .. " tiles away)")
+    -- Which ground cues this build can actually place. A pool showing
+    -- "none of N candidates" is a cue being covered by another pool
+    -- rather than appearing; a pool that resolved says which id is real,
+    -- so the candidate list in BNS_Signs can be cut down to it.
+    if BNS.Signs and BNS.Signs.report then
+        for _, line in ipairs(BNS.Signs.report()) do note(player, "  " .. line) end
+    end
 end
 
 -- Jump to any point of interest by name, fortified or not.
@@ -413,6 +585,273 @@ end
 -- Each scenario stages the situation and says what to watch for; the
 -- overlay (program text above heads) shows whether it plays out.
 BNS.Debug.Scenarios = {
+    -- The two things a person looking at the game can settle that no
+    -- offline suite can: is a shell playing player clips, and is it
+    -- actually walking.
+    animwalk = {
+        label = "Human animation + walking",
+        watch = "bandit stands with the player idle (not the zombie sway), "
+            .. "ambles off on its own, and swings its weapon like a player; "
+            .. "if not, select it on the NPCs tab and hit PROBE in the Anim lab",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if shell then
+                local brain = BNS.brain(shell)
+                brain.program = BNS.Program.WANDER
+                brain.restUntil = nil
+                BNS.Debug.animProbe(player, { id = ids[1] })
+            end
+        end,
+    },
+    firefight = {
+        label = "Firefight (magazine + reload)",
+        watch = "militia fires in bursts, runs the magazine dry, calls "
+            .. "\"reloading\" and breaks contact, then comes back on; out of "
+            .. "spares they draw a blade and close",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "exmilitary", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if not shell then return end
+            local brain = BNS.brain(shell)
+            -- Guarantee the gun, and a thin belt so the reload and the
+            -- run dry both happen inside a minute rather than eventually.
+            brain.weapon = { item = "Base.Pistol", dmg = 0.30, range = 10,
+                sound = "9mmShot", hit = 45, gun = true }
+            brain.backup = BNS.Spawner.rollMelee(brain.tier, brain.archetype)
+            brain.ammo = BNS.Combat.gunProfile(brain)
+            brain.ammo.mag, brain.ammo.left, brain.ammo.spares = 4, 4, 1
+            brain.warned, brain.warnTimer = true, nil
+            brain.program = BNS.Program.ATTACK
+        end,
+    },
+    living = {
+        label = "Living look + voice",
+        watch = "the bandit's skin is a person's, not a corpse's, and they "
+            .. "make no zombie noise; PROBE on the Anim lab prints what the "
+            .. "visual says about itself and which restyling ops landed",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "cityfolk", count = 2 })
+            for _, id in ipairs(ids or {}) do
+                local shell = BNS.Debug.findNPC(id)
+                if shell then
+                    local brain = BNS.brain(shell)
+                    brain.program = BNS.Program.WANDER
+                    BNS.Look.apply(shell, brain)
+                    note(player, "  " .. tostring(brain.name) .. ": "
+                        .. BNS.Look.describe(shell))
+                end
+            end
+            for _, line in ipairs(BNS.Look.report()) do note(player, "  " .. line) end
+        end,
+    },
+    hunt = {
+        label = "Lose a bandit",
+        watch = "let this one see you, then break line of sight and move. "
+            .. "They walk to where you *were*, look around for a few "
+            .. "seconds, and go back to wandering -- they do not follow you",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if not shell then return end
+            local brain = BNS.brain(shell)
+            brain.warned, brain.warnTimer = true, nil
+            brain.program = BNS.Program.APPROACH
+            note(player, string.format(
+                "chase speed %.2f of a sprint, %d ticks of grace before they "
+                    .. "call you lost, memory worth %d ticks, %d spent looking",
+                BNS.Programs.runSpeed(), BNS.Senses.GRACE,
+                BNS.Senses.MEMORY, BNS.Behaviour.searchLook))
+            if BNS.Combat.losProbe == false then
+                note(player, "  WARNING: no line-of-sight check on this build, "
+                    .. "so they can still see through walls")
+            end
+        end,
+    },
+    noise = {
+        label = "Gunshots + noise",
+        watch = "the bandits walk off towards a bang that came from "
+            .. "somewhere you are not, have a look round, and drift back "
+            .. "to wandering; the survivor goes the other way. Then fire "
+            .. "your own gun -- every NPC in earshot gets the same roll",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 2 })
+            for _, id in ipairs(BNS.Debug.spawnNPC(player,
+                    { role = BNS.Role.SURVIVOR, count = 1 }) or {}) do
+                table.insert(ids, id)
+            end
+            -- Sound the bang well away from the player, so what the panel
+            -- shows is an ear working and not an eye: an NPC that can see
+            -- you ignores noise, because it already knows better.
+            local nx = player:getX() + 25
+            local ny = player:getY() + 25
+            local nz = math.floor(player:getZ())
+            for _, id in ipairs(ids or {}) do
+                local shell = BNS.Debug.findNPC(id)
+                if shell then BNS.Senses.forget(BNS.brain(shell)) end
+            end
+            local heard = BNS.Senses.noise(nx, ny, nz, BNS.Behaviour.gunshotHeard)
+            note(player, string.format(
+                "bang at %d,%d: %d of %d NPCs came to look (a shot carries "
+                    .. "%d tiles, a door bash %d, and the odds fall to %d%% "
+                    .. "at the edge)",
+                math.floor(nx), math.floor(ny), heard, #ids,
+                BNS.Behaviour.gunshotHeard, BNS.Behaviour.bashHeard,
+                math.floor(BNS.Behaviour.hearingFall * 100)))
+            note(player, "the NPCs tab marks an ear [heard n] and an eye "
+                .. "[sees you] -- a hostile that heard it is in search")
+        end,
+    },
+    stagger = {
+        label = "Stagger + always clothed",
+        watch = "hit them: a solid one knocks them off their beat, takes "
+            .. "the swing they were part way through and buys you the next "
+            .. "hit. PROBE reports worn= for what they have on -- it should "
+            .. "never be 0",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 2 })
+            for _, id in ipairs(ids or {}) do
+                local shell = BNS.Debug.findNPC(id)
+                if shell then
+                    local brain = BNS.brain(shell)
+                    brain.warned, brain.warnTimer = true, nil
+                    brain.program = BNS.Program.ATTACK
+                    note(player, "  " .. tostring(brain.name) .. ": "
+                        .. BNS.Look.describe(shell))
+                end
+            end
+            note(player, string.format(
+                "every tier plays by the same rules now: rob %d%%, break off "
+                    .. "below %d%% health, %d%% stand their ground, %d damage a bash",
+                BNS.Behaviour.robChance,
+                math.floor(BNS.Behaviour.fleeHealth * 100),
+                BNS.Behaviour.standChance, BNS.Behaviour.bashDamage))
+        end,
+    },
+    squads = {
+        label = "Squad cohesion",
+        watch = "every bandit group, its spread, and anyone who has "
+            .. "wandered further than the cohesion distance from it. A "
+            .. "member out past it should be walking back, not away",
+        run = function(player)
+            local state = BNS.Persistence.getState()
+            local groups = {}
+            for _, rec in pairs(state.npcs) do
+                if rec.squad and BNS.Squads.get(rec.squad) then
+                    local g = groups[rec.squad] or { n = 0, out = 0, worst = 0, live = 0 }
+                    local ax, ay = BNS.Squads.anchor(rec.squad)
+                    local d = BNS.dist(rec.x, rec.y, ax, ay)
+                    g.n = g.n + 1
+                    if rec.live then g.live = g.live + 1 end
+                    if d > BNS.Squads.COHESION then g.out = g.out + 1 end
+                    g.worst = math.max(g.worst, d)
+                    groups[rec.squad] = g
+                end
+            end
+            local names = {}
+            for id in pairs(groups) do table.insert(names, id) end
+            table.sort(names)
+            if #names == 0 then note(player, "no managed squads right now") return end
+            for _, id in ipairs(names) do
+                local g = groups[id]
+                note(player, string.format(
+                    "%s: %d members (%d live), furthest %d tiles out, %d beyond %d",
+                    id, g.n, g.live, math.floor(g.worst), g.out, BNS.Squads.COHESION))
+            end
+        end,
+    },
+    virtual = {
+        label = "Virtual boundary",
+        watch = "every NPC out there and why it has or has not got a body. "
+            .. "Walk towards a [virtual] one: it should become live as soon "
+            .. "as its square streams in, and go back to [virtual] behind you",
+        run = function(player)
+            local state = BNS.Persistence.getState()
+            local live, waiting, offmap, capped = 0, 0, 0, 0
+            for _, rec in pairs(state.npcs) do
+                if rec.live then live = live + 1
+                elseif rec.capped then capped = capped + 1
+                elseif BNS.squareLoaded(rec.x, rec.y, rec.z) then waiting = waiting + 1
+                else offmap = offmap + 1 end
+            end
+            note(player, string.format(
+                "%d live, %d off the loaded map, %d on loaded ground waiting to embody, "
+                    .. "%d held back by the cap (ceiling %d)",
+                live, offmap, waiting, capped, BNS.recordCeiling()))
+            note(player, "a record on loaded ground should not stay waiting: "
+                .. "that is the failure this boundary replaced")
+        end,
+    },
+    standoff = {
+        label = "Melee standoff (hostile vs neutral)",
+        watch = "stand right against each of them. The bandit swings at "
+            .. "you; the survivor just stands there. Neither lunges, and "
+            .. "neither gets stuck in one -- PROBE should show 0 jammed",
+        run = function(player)
+            BNS.Debug.spawnNPC(player, { archetype = "thug", count = 1 })
+            local ids = BNS.Debug.spawnNPC(player, { role = BNS.Role.SURVIVOR, count = 1 })
+            for _, id in ipairs(ids or {}) do
+                local shell = BNS.Debug.findNPC(id)
+                if shell then
+                    local brain = BNS.brain(shell)
+                    brain.program = BNS.Program.TRADE
+                    note(player, "  " .. tostring(brain.name) .. " is a survivor: "
+                        .. "hostile=" .. tostring(BNS.isHostile(brain)))
+                end
+            end
+        end,
+    },
+    muzzle = {
+        label = "Walk into a gunner's muzzle",
+        watch = "get right up against them: they shove you off and bring "
+            .. "the gun back up rather than lunging at you like a zombie. "
+            .. "PROBE should show zero zombie states entered",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "police", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if not shell then return end
+            local brain = BNS.brain(shell)
+            brain.weapon = { item = "Base.Pistol", dmg = 0.30, range = 10,
+                sound = "9mmShot", hit = 45, gun = true }
+            brain.backup = BNS.Spawner.rollMelee(brain.tier, brain.archetype)
+            brain.ammo = BNS.Combat.gunProfile(brain)
+            brain.warned, brain.warnTimer = true, nil
+            brain.program = BNS.Program.ATTACK
+            BNS.Anim.equip(shell, brain)
+        end,
+    },
+    shove = {
+        label = "Shove + stomp",
+        watch = "shoving the bandit puts them on the floor and costs them "
+            .. "no health at all; they stop swinging until they are up. "
+            .. "Health only moves when you stomp or swing at them down there",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if not shell then return end
+            local brain = BNS.brain(shell)
+            brain.weapon = { item = "Base.BaseballBat", dmg = 0.16, range = 1.4, gun = false }
+            brain.warned, brain.warnTimer = true, nil
+            brain.program = BNS.Program.ATTACK
+            note(player, string.format("%s at %d%% health -- watch the NPCs tab",
+                brain.name, math.floor((brain.health or 1) * 100)))
+        end,
+    },
+    duel = {
+        label = "Melee duel (windup + recovery)",
+        watch = "the axe comes up before it comes down -- step back during "
+            .. "the windup and it whiffs, and the whiff leaves a longer "
+            .. "opening than a hit does; they tire and give ground",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "firefighter", count = 1 })
+            local shell = ids and ids[1] and BNS.Debug.findNPC(ids[1])
+            if not shell then return end
+            local brain = BNS.brain(shell)
+            brain.weapon = { item = "Base.Axe", dmg = 0.24, range = 1.3, gun = false }
+            brain.warned, brain.warnTimer = true, nil
+            brain.program = BNS.Program.ATTACK
+        end,
+    },
     warning = {
         label = "Warning shot + 4s hold",
         watch = "militia fires one round past you, holds aim 4s, then engages",
@@ -511,6 +950,8 @@ local HANDLERS = {
     debugSpawn    = BNS.Debug.spawnNPC,
     debugProgram  = BNS.Debug.forceProgram,
     debugAnim     = BNS.Debug.forceAnim,
+    debugAnimProbe = BNS.Debug.animProbe,
+    debugSuppress = BNS.Debug.setSuppress,
     debugTeleport = BNS.Debug.teleport,
     debugKill     = BNS.Debug.killNPC,
     debugClear    = function(p) BNS.Debug.clearNPCs(p) end,

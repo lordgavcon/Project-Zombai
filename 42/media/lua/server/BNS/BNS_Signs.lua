@@ -39,9 +39,28 @@ local CHALLENGE_COOLDOWN  = 90  -- brain ticks (~15s) between challenges
 -- pools exist to say "armed people live here", and nothing in them should
 -- be worth picking up -- a stronghold's actual supplies belong in its
 -- containers (BNS_Bases), not strewn across the floor.
+--
+-- `casings` came up empty on 42.20 -- all four ids it listed were wrong,
+-- and the cue vanished with them ("no usable items for decoration pool
+-- 'casings'" in console.txt). B42 does ship spent brass as ordinary loot
+-- (casings, hulls and their weathered "old" variants), but the ids cannot
+-- be read offline, so the list below is a candidate set in the sense
+-- CLAUDE.md means: every entry is checked against the running build once
+-- and the misses are dropped for free. Confirm the survivor in game with
+-- the debug panel and the rest can go.
 local POOLS = {
     casings = { "Base.BulletShell", "Base.9mmShellCasing", "Base.ShellCasing",
-                "Base.ShotgunShellEmpty" },
+                "Base.ShotgunShellEmpty",
+                -- B42 ammo-part naming candidates.
+                "Base.BulletCasing", "Base.BulletCasings",
+                "Base.Casing", "Base.Casings",
+                "Base.PistolCasing", "Base.PistolCasings",
+                "Base.RifleCasing", "Base.RifleCasings",
+                "Base.OldPistolCasing", "Base.OldRifleCasing",
+                "Base.CasingOld", "Base.OldCasing",
+                "Base.9mmCasing", "Base.556Casing", "Base.308Casing",
+                "Base.ShotgunHull", "Base.ShotgunHulls",
+                "Base.SpentShell", "Base.SpentCasing" },
     rags    = { "Base.RippedSheetsDirty", "Base.RippedSheets", "Base.DirtyRag" },
     refuse  = { "Base.EmptyTinCan", "Base.TinCanEmpty", "Base.BrokenGlass",
                 "Base.GarbageBag", "Base.CigaretteButt" },
@@ -66,10 +85,29 @@ function BNS.Signs.resolvePool(name)
         if ok and item then table.insert(out, fullType) end
     end
     if #out == 0 then
-        BNS.log("no usable items for decoration pool '" .. name .. "'")
+        BNS.log("no usable items for decoration pool '" .. name
+            .. "' - falling back to another pool for those squares")
     end
     resolved[name] = out
     return out
+end
+
+-- Roll a pool for this square, and if that pool has nothing on this build,
+-- take another from the same zone rather than skipping the square.
+--
+-- A pool that resolves empty used to take its cue out of the game
+-- silently: `casings` missed on 42.20 and held strongholds simply had
+-- less litter on the approach, with only a line in console.txt to say so.
+-- The cue matters more than which pool supplies it -- what the player is
+-- meant to read is "armed people live here", and tin cans and broken
+-- glass say that too.
+function BNS.Signs.pickPool(pools)
+    local start = ZombRand(#pools)
+    for offset = 0, #pools - 1 do
+        local items = BNS.Signs.resolvePool(pools[(start + offset) % #pools + 1])
+        if #items > 0 then return items end
+    end
+    return {}
 end
 
 -- The ids a pool offers before the build filter, so the suites can assert
@@ -80,6 +118,27 @@ end
 
 function BNS.Signs.clearPoolCache()
     resolved = {}
+end
+
+-- What each pool actually resolved to on this build, one line per pool,
+-- for the debug panel. This is how the candidate ids above get trimmed:
+-- an id that survives here is real and the rest can be deleted.
+function BNS.Signs.report()
+    local out = {}
+    local names = {}
+    for name in pairs(POOLS) do table.insert(names, name) end
+    table.sort(names)
+    for _, name in ipairs(names) do
+        local items = BNS.Signs.resolvePool(name)
+        if #items == 0 then
+            table.insert(out, string.format("%-8s [none of %d candidates on this build]",
+                name, #POOLS[name]))
+        else
+            table.insert(out, string.format("%-8s %d/%d: %s",
+                name, #items, #POOLS[name], table.concat(items, ", ")))
+        end
+    end
+    return out
 end
 
 -- Ground evidence ------------------------------------------------------------
@@ -96,7 +155,7 @@ function BNS.Signs.decorateSquare(square, base, zone)
     if ZombRand(100) >= density then return false end
 
     local pools = (zone == "core") and CORE_POOLS or APPROACH_POOLS
-    local items = BNS.Signs.resolvePool(pools[ZombRand(#pools) + 1])
+    local items = BNS.Signs.pickPool(pools)
     if #items == 0 then return false end
 
     square:AddWorldInventoryItem(items[ZombRand(#items) + 1],

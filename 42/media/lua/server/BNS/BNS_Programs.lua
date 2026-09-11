@@ -12,6 +12,8 @@ require "BNS/BNS_Core"
 require "BNS/BNS_Archetypes"
 require "BNS/BNS_Combat"
 require "BNS/BNS_Anim"
+require "BNS/BNS_Squads"
+require "BNS/BNS_Senses"
 
 BNS.Programs = {}
 
@@ -40,6 +42,81 @@ end
 BNS.Programs.REPATH_TICKS = 3   -- full brain ticks (~0.5s) between path orders
 BNS.Programs.REPATH_DIST = 1.5  -- ...unless the destination moved this far
 
+-- Does the engine still hold a path for this shell?
+--
+-- The repath budget above assumes an order we issued is still being
+-- walked. When something else drops it -- the shell's own AI changing
+-- state, a blocked square, a failed path -- the budget turns into a gag:
+-- the NPC stands still and we politely decline to re-order it. That is
+-- what "bandits don't walk around" looks like from the outside. Asking
+-- the shell settles it.
+--
+-- hasPath()/isPathing() are both on IsoZombie in B42, but a signature
+-- that throws must not be retried on a tick (see CLAUDE.md), so the form
+-- that works is probed once and remembered, and a thrower is written off
+-- for the session. "Don't know" means "assume it is still walking", which
+-- leaves the old budget behaviour exactly as it was.
+BNS.Programs.pathProbe = nil -- nil = untried, "hasPath"/"isPathing"/false = settled
+
+function BNS.Programs.hasEnginePath(zombie)
+    if BNS.Programs.pathProbe == false then return true end
+    if BNS.Programs.pathProbe then
+        local ok, has = pcall(function() return zombie[BNS.Programs.pathProbe](zombie) end)
+        if ok then return has == true end
+        BNS.Programs.pathProbe = false
+        return true
+    end
+    for _, name in ipairs({ "hasPath", "isPathing" }) do
+        if zombie[name] then
+            local ok, has = pcall(function() return zombie[name](zombie) end)
+            if ok and type(has) == "boolean" then
+                BNS.Programs.pathProbe = name
+                return has
+            end
+        end
+    end
+    BNS.Programs.pathProbe = false
+    return true
+end
+
+-- Chasing at a sprint ---------------------------------------------------
+--
+-- `setRunning(true)` gives a shell the zombie sprint, which is faster
+-- than a person and unrunnable-from. The speed modifier pulls it back to
+-- something a player can outpace by choosing their ground -- which is the
+-- point: a chase you cannot lose is not a chase.
+--
+-- Unverified setter, so: candidate list, probed once, written off if it
+-- throws, and clamped well away from zero. A speed modifier of nothing is
+-- an NPC that never moves again, which is the setUseless lesson wearing a
+-- different hat.
+BNS.Programs.SPEED_SETTERS = { "setSpeedMod", "setPathSpeed" }
+BNS.Programs.SPEED_FLOOR = 0.3
+BNS.Programs.speedProbe = nil -- nil = untried, method name, false = written off
+
+function BNS.Programs.runSpeed()
+    local s = BNS.Options().runSpeed or BNS.Behaviour.runSpeed
+    return math.max(math.min(s, 1.0), BNS.Programs.SPEED_FLOOR)
+end
+
+-- Only written when it changes: this runs behind every path order.
+function BNS.Programs.setSpeed(zombie, brain, value)
+    if BNS.Programs.speedProbe == false then return false end
+    if brain.speedMod == value then return true end
+    local names = BNS.Programs.speedProbe and { BNS.Programs.speedProbe }
+        or BNS.Programs.SPEED_SETTERS
+    for _, name in ipairs(names) do
+        if zombie[name] and pcall(function() zombie[name](zombie, value) end) then
+            BNS.Programs.speedProbe = name
+            brain.speedMod = value
+            return true
+        end
+    end
+    BNS.Programs.speedProbe = false
+    BNS.log("no usable movement-speed setter on this build; NPCs sprint at full speed")
+    return false
+end
+
 function BNS.Programs.walkTo(zombie, x, y, z, run)
     local brain = BNS.brain(zombie)
     if brain then
@@ -47,14 +124,20 @@ function BNS.Programs.walkTo(zombie, x, y, z, run)
         local movedFar = brain.pathX == nil
             or BNS.dist(x, y, brain.pathX, brain.pathY) >= BNS.Programs.REPATH_DIST
         local gearChanged = brain.pathRun ~= (run == true)
+        -- Ordered somewhere and no longer walking there: re-issue now
+        -- rather than waiting out a budget meant for a shell in motion.
+        local lostPath = brain.pathX ~= nil and not BNS.Programs.hasEnginePath(zombie)
+        if lostPath then brain.pathLost = (brain.pathLost or 0) + 1 end
         -- Still walking the order it already has: leave it alone.
-        if brain.pathCooldown > 0 and not movedFar and not gearChanged then
+        if brain.pathCooldown > 0 and not movedFar and not gearChanged and not lostPath then
             return
         end
         brain.pathCooldown = BNS.Programs.REPATH_TICKS
         brain.pathX, brain.pathY, brain.pathRun = x, y, run == true
         brain.pathCount = (brain.pathCount or 0) + 1
         brain.stopped = nil
+        -- Moving spoils a settled aim, the same way it does for a player.
+        brain.aimTicks = 0
     end
     if zombie.pathToLocationF then
         zombie:pathToLocationF(x, y, z or 0)
@@ -62,7 +145,11 @@ function BNS.Programs.walkTo(zombie, x, y, z, run)
         zombie:pathToLocation(math.floor(x), math.floor(y), z or 0)
     end
     if zombie.setRunning then zombie:setRunning(run == true) end
-    if brain then BNS.Anim.set(zombie, brain, run and "run" or "walk") end
+    if brain then
+        -- A run is a person's run, not a zombie sprint.
+        BNS.Programs.setSpeed(zombie, brain, run and BNS.Programs.runSpeed() or 1.0)
+        BNS.Anim.set(zombie, brain, run and "run" or "walk")
+    end
 end
 
 -- Come to a halt. Attacks are gated on not running, so a program that
@@ -104,12 +191,11 @@ local function arrived(zombie, brain, dist)
 end
 
 -- Threat perception: does this NPC currently notice the player?
+-- BNS.Senses.observe has already answered this for the tick, walls and
+-- all -- noticing someone through a wall was the other half of the
+-- perfect-knowledge problem.
 local function noticesPlayer(zombie, ctx)
-    if not ctx.player then return false end
-    if ctx.dist > 30 then return false end
-    if ctx.dist < 8 then return true end
-    -- Beyond close range, sneaking players in cover go unnoticed.
-    return not ctx.player:isSneaking() or ZombRand(100) < 10
+    return ctx.visible == true
 end
 
 -- WANDER ----------------------------------------------------------------
@@ -134,10 +220,12 @@ BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
         brain.program = BNS.Program.APPROACH
         return
     end
-    -- Mid-rest: stand still and look around.
+    -- Mid-rest: stand still and look around. Not while the group has
+    -- left them behind, though -- catching up comes first.
     if brain.restUntil then
         brain.restUntil = brain.restUntil - 1
-        if brain.restUntil > 0 and not threatened(zombie, brain, ctx) then
+        if brain.restUntil > 0 and not threatened(zombie, brain, ctx)
+                and not BNS.Squads.strayed(brain, zombie:getX(), zombie:getY()) then
             BNS.Programs.stopMoving(zombie, brain, "idle")
             return
         end
@@ -152,19 +240,42 @@ BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
     if BNS.Vehicles and not brain.vehicle and ZombRand(600) == 0 then
         BNS.Vehicles.tryClaim(zombie, brain)
     end
+    -- Someone in the group decides it is time to move on, and then the
+    -- whole group goes -- rather than one bandit wandering off alone.
+    local x, y = zombie:getX(), zombie:getY()
+    BNS.Squads.arrived(brain, x, y)
+    BNS.Squads.maybeTrek(brain)
+
     if arrived(zombie, brain, 3) then
         -- Arrived: usually take a breather before choosing somewhere new.
-        if not threatened(zombie, brain, ctx)
+        local sx, sy, urgent = BNS.Squads.wanderTarget(brain, x, y)
+        if not urgent and not threatened(zombie, brain, ctx)
                 and ZombRand(100) < BNS.Programs.REST_CHANCE then
             brain.restUntil = ZombRand(BNS.Programs.REST_MIN, BNS.Programs.REST_MAX)
             brain.targetX, brain.targetY = nil, nil
             BNS.Programs.stopMoving(zombie, brain, "idle")
             return
         end
-        -- Pick a new destination: nearby drift, occasionally a long trek.
-        local reach = ZombRand(100) < 10 and 200 or 30
-        brain.targetX = zombie:getX() + ZombRand(-reach, reach + 1)
-        brain.targetY = zombie:getY() + ZombRand(-reach, reach + 1)
+        if sx then
+            -- In a squad: destinations come from the group's bubble, so
+            -- staying together is where they choose to go rather than a
+            -- correction dragged out of them afterwards.
+            brain.targetX, brain.targetY = sx, sy
+        else
+            -- Alone: nearby drift, occasionally a long trek.
+            local reach = ZombRand(100) < 10 and 200 or 30
+            brain.targetX = x + ZombRand(-reach, reach + 1)
+            brain.targetY = y + ZombRand(-reach, reach + 1)
+        end
+    elseif BNS.Squads.strayed(brain, x, y) then
+        -- Wandered out of the group's reach part way to somewhere else.
+        -- Abandon that errand and rejoin: a bandit alone in the open is
+        -- not what a squad is for.
+        local sx, sy = BNS.Squads.wanderTarget(brain, x, y)
+        if sx then
+            brain.targetX, brain.targetY = sx, sy
+            brain.restUntil = nil
+        end
     end
     BNS.Programs.walkTo(zombie, brain.targetX, brain.targetY, 0, false)
 end
@@ -173,18 +284,24 @@ end
 
 BNS.Programs[BNS.Program.APPROACH] = function(zombie, brain, ctx)
     local p = ctx.player
-    if not p or ctx.dist > 45 then
+    -- Lost them first, and only then "too far to bother": giving up
+    -- because of a distance they cannot see is the perfect knowledge this
+    -- was all meant to remove.
+    if ctx.lost then
+        brain.program = BNS.Program.SEARCH
+        return
+    end
+    if not p or (ctx.knownDist or ctx.dist) > 45 then
         brain.program = BNS.Program.WANDER
         return
     end
     local opts = BNS.Options()
     -- Decide intent once, when first getting close.
     if ctx.dist < 6 and not brain.intent then
-        local robChance = 0
-        if opts.robbery then
-            if brain.tier == BNS.Tier.CIVILIAN then robChance = 65
-            elseif brain.tier == BNS.Tier.THUG then robChance = 35 end
-        end
+        -- Every bandit robs on the same odds. Tier used to decide this
+        -- outright -- militia never robbed at all -- which made "will
+        -- this one talk or shoot" a different question per tier.
+        local robChance = opts.robbery and BNS.Behaviour.robChance or 0
         -- Nobody tries to mug someone aiming a gun at them.
         if p:isAiming() then robChance = 0 end
         brain.intent = (ZombRand(100) < robChance) and BNS.Program.ROB or BNS.Program.ATTACK
@@ -193,12 +310,57 @@ BNS.Programs[BNS.Program.APPROACH] = function(zombie, brain, ctx)
         brain.program = brain.intent
         return
     end
-    -- Gunners open fire before closing.
-    if brain.weapon and brain.weapon.gun and ctx.dist < brain.weapon.range then
+    -- Gunners open fire before closing -- at something they can see.
+    if ctx.visible and brain.weapon and brain.weapon.gun
+            and ctx.dist < brain.weapon.range then
         brain.program = BNS.Program.ATTACK
         return
     end
-    BNS.Programs.walkTo(zombie, p:getX(), p:getY(), p:getZ(), true)
+    BNS.Programs.walkTo(zombie, ctx.goX, ctx.goY, ctx.goZ, true)
+end
+
+-- SEARCH ----------------------------------------------------------------
+--
+-- They saw you, they lost you, and all they have is the last place they
+-- saw you standing. Walk there, look around, give up. This is the whole
+-- reason a player can now break contact: before it, pursuit read live
+-- coordinates every tick and nothing you did shook anyone off.
+
+BNS.Programs[BNS.Program.SEARCH] = function(zombie, brain, ctx)
+    -- Spotted again: straight back to it, wherever they were headed.
+    if ctx.visible then
+        BNS.Senses.lookAround(zombie, false)
+        brain.searchLook = nil
+        brain.program = brain.intent or BNS.Program.APPROACH
+        return
+    end
+    -- Nothing left to go on.
+    if ctx.stale or not ctx.goX then
+        BNS.Senses.lookAround(zombie, false)
+        BNS.Senses.forget(brain)
+        brain.intent, brain.warned, brain.warnTimer = nil, nil, nil
+        brain.program = brain.home and BNS.Program.DEFEND or BNS.Program.WANDER
+        return
+    end
+
+    local d = BNS.dist(zombie:getX(), zombie:getY(), ctx.goX, ctx.goY)
+    if d > 2 and not brain.searchLook then
+        -- Still on the way. At a jog, not a sprint: they are looking for
+        -- someone, not chasing them.
+        BNS.Programs.walkTo(zombie, ctx.goX, ctx.goY, ctx.goZ, true)
+        return
+    end
+
+    -- Arrived. Stand and look about for a few seconds.
+    brain.searchLook = (brain.searchLook or BNS.Behaviour.searchLook) - BNS.Senses.TICK
+    BNS.Programs.stopMoving(zombie, brain, "idle")
+    BNS.Senses.lookAround(zombie, true)
+    if brain.searchLook <= 0 then
+        BNS.Senses.lookAround(zombie, false)
+        BNS.Senses.forget(brain)
+        brain.intent, brain.warned, brain.warnTimer = nil, nil, nil
+        brain.program = brain.home and BNS.Program.DEFEND or BNS.Program.WANDER
+    end
 end
 
 -- ROB -------------------------------------------------------------------
@@ -227,6 +389,7 @@ end
 BNS.Programs[BNS.Program.ROB] = function(zombie, brain, ctx)
     local p = ctx.player
     if not p or ctx.dist > 10 then brain.program = BNS.Program.WANDER return end
+    if ctx.lost then brain.program = BNS.Program.SEARCH return end
     -- Player pulled a weapon up: robbery turns into a fight.
     if p:isAiming() then
         brain.program = BNS.Program.ATTACK
@@ -283,9 +446,47 @@ local function endEngagement(brain)
     brain.program = brain.home and BNS.Program.DEFEND or BNS.Program.WANDER
 end
 
+-- Footwork ---------------------------------------------------------------
+--
+-- Give ground: walk to a point directly away from something, capped so a
+-- bandit backs off rather than bolting. Used for the beat after a swing,
+-- for a gunner whose magazine is empty, and for one who has let the
+-- player walk inside their weapon's useful range.
+function BNS.Programs.backAway(zombie, brain, fromX, fromY, tiles, run)
+    local dx = zombie:getX() - fromX
+    local dy = zombie:getY() - fromY
+    local d = math.max(BNS.dist(0, 0, dx, dy), 0.1)
+    BNS.Programs.walkTo(zombie,
+        zombie:getX() + dx / d * tiles,
+        zombie:getY() + dy / d * tiles, zombie:getZ(), run == true)
+end
+
+-- How close a gunner lets a player get before giving ground rather than
+-- standing there being hit, as a fraction of the weapon's range. A
+-- shotgun is happy much closer than a hunting rifle is.
+BNS.Programs.STANDOFF_MIN = 0.30
+BNS.Programs.STANDOFF_KEEP = 0.60
+
+-- The chance a melee bandit uses their recovery beat to step out rather
+-- than stand in your face. Not every swing, or they never close.
+BNS.Programs.STEP_BACK_CHANCE = 40
+
+-- Within this of a player, a stopped shell has its engine state machine
+-- held still so it cannot lunge (BNS.Combat.holdState). Wide enough to
+-- cover any melee exchange, narrow enough that a shell with somewhere to
+-- be is never held.
+BNS.Programs.MELEE_HOLD_DIST = 2.5
+
 BNS.Programs[BNS.Program.ATTACK] = function(zombie, brain, ctx)
     local p = ctx.player
-    if not p or ctx.dist > 50 or p:isDead() then
+    -- Out of sight long enough to count: go and look where they were,
+    -- rather than walking to coordinates nobody can see. Checked before
+    -- the give-up distance, which is measured from what they know.
+    if ctx.lost then
+        brain.program = BNS.Program.SEARCH
+        return
+    end
+    if not p or (ctx.knownDist or ctx.dist) > 50 or p:isDead() then
         endEngagement(brain)
         return
     end
@@ -303,23 +504,68 @@ BNS.Programs[BNS.Program.ATTACK] = function(zombie, brain, ctx)
         end
         return
     end
+
+    -- Reloading or blown: get off the line first, fight after. This is
+    -- the window the whole magazine model exists to create.
+    if BNS.Combat.isBusy(brain) then
+        if not brain.reloadTimer then
+            BNS.Say(zombie, brain, getText("UI_BNS_Winded"))
+        end
+        if ctx.dist < 8 then
+            BNS.Programs.backAway(zombie, brain, p:getX(), p:getY(), 8, true)
+        else
+            BNS.Programs.stopMoving(zombie, brain, "idle")
+        end
+        return
+    end
+
     -- Close the distance at a run, or stand and fight -- never both at
     -- once. BNS.Combat refuses to attack while running.
     if w.gun then
-        if ctx.dist > w.range * 0.8 then
+        local range = w.range or 10
+        if ctx.dist <= BNS.Combat.SHOVE_RANGE then
+            -- Someone in your face is not a shooting problem, it is a
+            -- get-off-me problem. A zombie's answer at this range is a
+            -- lunge; a person's is a shove and then the weapon back up.
+            BNS.Programs.stopMoving(zombie, brain, "aim")
+            if not BNS.Combat.shove(zombie, brain, p) then
+                BNS.Programs.backAway(zombie, brain, p:getX(), p:getY(),
+                    range * BNS.Programs.STANDOFF_KEEP, true)
+            end
+        elseif ctx.dist < range * BNS.Programs.STANDOFF_MIN then
+            -- Let a player walk into your muzzle and you lose the gun's
+            -- whole advantage: open the range back up instead.
+            BNS.Programs.backAway(zombie, brain, p:getX(), p:getY(),
+                range * BNS.Programs.STANDOFF_KEEP, true)
+        elseif ctx.dist > range * 0.8 then
             BNS.Programs.walkTo(zombie, p:getX(), p:getY(), p:getZ(), true)
         else
             BNS.Programs.stopMoving(zombie, brain, "aim")
             BNS.Combat.attack(zombie, brain, p)
         end
-    else
-        if ctx.dist > (w.range or 1.3) then
-            BNS.Programs.walkTo(zombie, p:getX(), p:getY(), p:getZ(), true)
-        else
-            BNS.Programs.stopMoving(zombie, brain, "idle")
-            BNS.Combat.attack(zombie, brain, p)
-        end
+        return
     end
+
+    local reach = w.range or 1.3
+    if ctx.dist > reach then
+        BNS.Programs.walkTo(zombie, p:getX(), p:getY(), p:getZ(), true)
+        return
+    end
+    -- In reach. The recovery beat after a swing is the opening the
+    -- player gets, so spend some of it stepping out of theirs rather
+    -- than standing toe to toe -- which is what trading blows looks
+    -- like from the outside.
+    if brain.swingPhase == "recover" and not brain.steppedBack
+            and ZombRand(100) < BNS.Programs.STEP_BACK_CHANCE then
+        brain.steppedBack = true
+        BNS.Programs.backAway(zombie, brain, p:getX(), p:getY(), 2, false)
+        return
+    end
+    if brain.swingPhase ~= "recover" then brain.steppedBack = nil end
+    -- Halt, but leave the animation alone once a swing is under way: the
+    -- cycle owns it from the windup to the end of the recovery.
+    BNS.Programs.stopMoving(zombie, brain, brain.swingPhase and nil or "idle")
+    BNS.Combat.attack(zombie, brain, p)
 end
 
 -- FLEE ------------------------------------------------------------------

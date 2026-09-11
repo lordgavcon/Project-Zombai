@@ -91,6 +91,10 @@ end
 function BNS.Persistence.virtualStep(rec)
     if rec.live then return end
     if rec.home then return end -- POI defenders stay put
+    -- Squad members are carried by their group's anchor. Stepping them
+    -- one at a time is what pulled squads apart across the map, so the
+    -- group moves and they follow it.
+    if BNS.Squads and BNS.Squads.placeVirtual(rec) then return end
     if not rec.targetX then
         rec.targetX = rec.x + ZombRand(-400, 400)
         rec.targetY = rec.y + ZombRand(-400, 400)

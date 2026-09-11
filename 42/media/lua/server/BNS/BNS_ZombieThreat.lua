@@ -31,12 +31,9 @@ local GRAB_CHANCE  = 20   -- % per adjacent zombie per scan
 local GRAB_BONUS   = 30   -- extra hit % while the NPC is held
 local ZOMBIE_DMG   = 0.08 -- brain-health damage per landed zombie hit
 
--- Chance (%) to stand and fight when the odds say run. Rare by design.
-local STAND_CHANCE = {
-    [BNS.Tier.CIVILIAN] = 5,
-    [BNS.Tier.THUG]     = 10,
-    [BNS.Tier.MILITIA]  = 15,
-}
+-- Chance to stand and fight when the odds say run is BNS.Behaviour's,
+-- and the same for everyone: a last-stander is a rare person, not a rare
+-- tier.
 
 -- Live java refs to each NPC's current zombie target. Kept out of mod
 -- data on purpose (mod data must stay serialisable).
@@ -63,16 +60,18 @@ function BNS.ZombieThreat.zombieStrike(npc, brain, entry)
     if not brain.grabbedTimer and entry.d <= GRAB_RANGE
             and ZombRand(100) < GRAB_CHANCE then
         -- Grabbed: held in a struggle, unable to move or attack until
-        -- they break free. Fitter tiers shake loose faster.
-        local hold = 90 -- ~1.5s
-        if brain.tier == BNS.Tier.CIVILIAN then hold = 150
-        elseif brain.tier == BNS.Tier.THUG then hold = 120 end
-        brain.grabbedTimer = hold
+        -- they break free. The same struggle for everyone.
+        brain.grabbedTimer = BNS.Behaviour.grabHold
         BNS.Anim.set(npc, brain, "grabbed")
         npc:playSound("ZombieAttack")
     end
     local chance = HIT_CHANCE + (brain.grabbedTimer and GRAB_BONUS or 0)
     if ZombRand(100) < chance then
+        -- A zombie landing one knocks them off their beat exactly as a
+        -- player's swing does: being staggered is not a player privilege.
+        if BNS.Combat.staggersFrom(ZOMBIE_DMG) then
+            BNS.Combat.stagger(npc, brain)
+        end
         BNS.Anim.pulse(npc, brain, "hit")
         npc:playSound("MaleBeingHit")
         BNS.Combat.damageNPC(npc, brain, ZOMBIE_DMG)
@@ -150,7 +149,7 @@ function BNS.ZombieThreat.apply(zombie, brain, verdict, nearest, centroid)
         end
         -- Decide once per threat episode whether this one is a stander.
         if brain.standGround == nil then
-            brain.standGround = ZombRand(100) < (STAND_CHANCE[brain.tier] or 5)
+            brain.standGround = ZombRand(100) < BNS.Behaviour.standChance
             if brain.standGround then
                 brain.speechCooldown = 0
                 BNS.Say(zombie, brain, getText("UI_BNS_LastStand"))
@@ -187,6 +186,16 @@ BNS.Programs[BNS.Program.FIGHTZ] = function(zombie, brain, ctx)
     end
     local w = brain.weapon or {}
     local d = BNS.dist(zombie:getX(), zombie:getY(), target:getX(), target:getY())
+    -- Mid-reload or blown: give ground rather than stand there working
+    -- the action with a zombie on you. Same rule as a player fight.
+    if BNS.Combat.isBusy(brain) then
+        if d < 6 then
+            BNS.Programs.backAway(zombie, brain, target:getX(), target:getY(), 6, true)
+        else
+            BNS.Programs.stopMoving(zombie, brain, "idle")
+        end
+        return
+    end
     -- Close at a run, or plant and swing -- never swinging mid-sprint.
     if w.gun then
         if d > w.range then
@@ -199,7 +208,8 @@ BNS.Programs[BNS.Program.FIGHTZ] = function(zombie, brain, ctx)
         if d > (w.range or 1.3) then
             BNS.Programs.walkTo(zombie, target:getX(), target:getY(), target:getZ(), true)
         else
-            BNS.Programs.stopMoving(zombie, brain, "idle")
+            -- The swing cycle owns the animation from windup to recovery.
+            BNS.Programs.stopMoving(zombie, brain, brain.swingPhase and nil or "idle")
             BNS.Combat.attackZombie(zombie, brain, target)
         end
     end

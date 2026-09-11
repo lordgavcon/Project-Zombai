@@ -78,7 +78,7 @@ end
 function BNS.Raids.launchRaid(baseRec)
     local opts = BNS.Options()
     local tier = (opts.militia and ZombRand(100) < 50) and BNS.Tier.MILITIA or BNS.Tier.THUG
-    local size = tier == BNS.Tier.MILITIA and ZombRand(3, 6) or ZombRand(2, 4)
+    local size = ZombRand(BNS.Behaviour.squadMin, BNS.Behaviour.squadMax + 1)
     local squadId = "raid_" .. tostring(ZombRand(100000))
     -- Raiders come themed to the base's region (police/thugs near towns,
     -- ex-military near military country).

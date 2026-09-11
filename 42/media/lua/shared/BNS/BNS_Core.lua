@@ -12,6 +12,24 @@ BNS = BNS or {}
 BNS.Version = "0.1.0"
 BNS.CommandModule = "BNS"
 
+-- Shell suppression -----------------------------------------------------
+--
+-- A shell has to stop behaving like a zombie without being frozen. Only
+-- the target clearing is understood: it is what stops a shell lunging at
+-- players, and it is cheap. `setUseless` and `makeInactive` were added on
+-- a guess ("calm the engine's instincts") and never verified against a
+-- running build -- and a shell that will not walk while its brain issues
+-- path orders is exactly what those two would look like if either parks
+-- the character. They are off by default and can be switched back on from
+-- the debug panel, so the question can be answered in game rather than
+-- argued about here.
+BNS.Suppress = {
+    clearTarget = true,  -- setTarget(nil)/setAttackedBy(nil): stops zombie aggression
+    lockState   = true,  -- setStateMachineLocked while standing in melee range
+    useless     = false, -- setUseless(true)
+    inactive    = false, -- makeInactive(true)
+}
+
 -- Roles ----------------------------------------------------------------
 BNS.Role = {
     BANDIT   = "bandit",
@@ -37,6 +55,7 @@ BNS.Program = {
     DEFEND   = "defend",
     TRADE    = "trade",
     FIGHTZ   = "fightz",   -- fighting off real zombies
+    SEARCH   = "search",   -- lost sight of you: checking where you were
     SCAVENGE = "scavenge", -- looting a building for supplies
     HAUL     = "haul",     -- carrying loot to a claimed vehicle
 }
@@ -62,6 +81,8 @@ function BNS.Options()
         traders          = BNS.SV("TradersEnabled", true),
         robbery          = BNS.SV("RobberyEnabled", true),
         damageMult       = BNS.SV("NPCDamageMultiplier", 1.0),
+        attackSpeed      = BNS.SV("NPCAttackSpeed", 0.5),
+        runSpeed         = BNS.SV("NPCRunSpeed", 0.7),
         doorDelay        = BNS.SV("DoorOpenDelay", 3),
         scavenging       = BNS.SV("ScavengingEnabled", true),
         vehicles         = BNS.SV("NPCVehiclesEnabled", true),
@@ -93,6 +114,16 @@ function BNS.isBandit(zombie)
     return b ~= nil and b.role == BNS.Role.BANDIT
 end
 
+-- Is this NPC hostile to players *right now*? Role is the whole answer:
+-- survivors and traders never fight people, and a neutral turned on you
+-- has already had its role flipped to BANDIT (BNS_Brain's hit handler).
+-- Combat is gated on this rather than on which program happens to be
+-- running, so a friendly NPC standing next to you cannot throw a punch
+-- however it got there.
+function BNS.isHostile(brain)
+    return brain ~= nil and brain.role == BNS.Role.BANDIT
+end
+
 function BNS.isTrader(zombie)
     local b = BNS.brain(zombie)
     return b ~= nil and b.role == BNS.Role.TRADER
@@ -111,6 +142,90 @@ function BNS.getPlayers()
             local p = getSpecificPlayer(i)
             if p and not p:isDead() then table.insert(out, p) end
         end
+    end
+    return out
+end
+
+-- Shared bandit behaviour ------------------------------------------------
+--
+-- Every bandit behaves the same way, whatever their tier. The tiers used
+-- to fork the *rules*: only civilians ran when hurt, only civilians and
+-- thugs would rob you, militia stood their ground three times as often,
+-- and each hit doors for a different number. That made a bandit's tier
+-- something you had to learn separately rather than the same person with
+-- better kit, and it made every one of those behaviours a separate code
+-- path to get wrong.
+--
+-- So the rules live here, once, and every tier reads them. What a tier
+-- still decides is *gear* -- which weapons and outfits they roll, and how
+-- likely a firearm is -- plus one stat, toughness, because that is what a
+-- tier is for. Nothing else should branch on `brain.tier`.
+BNS.Behaviour = {
+    runSpeed    = 0.7,  -- fraction of a sprint an NPC chases at
+    gunshotHeard = 70,  -- tiles a gunshot carries to an NPC's ear
+    bashHeard   = 30,   -- tiles a door being hammered carries
+    hearingFall = 0.55, -- odds at the edge of a noise vs right under it
+    searchLook  = 300,  -- engine ticks spent looking round where they lost you
+    robChance   = 40,   -- % chance an engagement opens as a robbery
+    fleeHealth  = 0.35, -- below this, a hurt bandit breaks off
+    standChance = 10,   -- % who stand their ground against a zombie mob
+    grabHold    = 120,  -- engine ticks held by a zombie's grab
+    bashDamage  = 35,   -- damage per bash against a door's durability
+    spareMags   = 2,    -- spare magazines carried
+    squadMin    = 2,    -- how many arrive together
+    squadMax    = 4,
+}
+
+-- The one thing a tier still changes about a bandit in a fight.
+BNS.Toughness = {
+    [BNS.Tier.CIVILIAN] = 1.0,
+    [BNS.Tier.THUG]     = 1.15,
+    [BNS.Tier.MILITIA]  = 1.3,
+}
+
+-- How many NPC records may exist at once.
+--
+-- New NPCs are created *virtual*, out in the unloaded world, so the live
+-- cap no longer throttles how many exist -- it only throttles how many
+-- have bodies. Without its own ceiling the pool would grow by one every
+-- ten minutes for the life of the save, none of them counted against
+-- anything. Several times the live cap leaves room for the walking-around
+-- population that makes meeting the same scavenger two towns over
+-- possible.
+BNS.VirtualPool = 3 -- total records allowed, as a multiple of maxLive
+
+function BNS.recordCeiling()
+    return (BNS.Options().maxLive or 20) * BNS.VirtualPool
+end
+
+-- Is the world actually streamed in at this point?
+--
+-- This is the only honest answer to "can an NPC exist here", and it is
+-- what the live/virtual boundary is built on. A radius around the player
+-- is *not* the same thing: the streamed area is neither round nor a fixed
+-- size, so a record could sit inside a generous radius while the square
+-- under it stayed unloaded -- close enough that BNS thought it should be
+-- awake, too far for the engine to give it a body. Records in that band
+-- were embodied never and stepped never: frozen for the rest of the save.
+function BNS.squareLoaded(x, y, z)
+    local cell = getCell()
+    if not cell then return false end
+    local ok, sq = pcall(function()
+        return cell:getGridSquare(math.floor(x), math.floor(y), math.floor(z or 0))
+    end)
+    return ok and sq ~= nil
+end
+
+-- Every NPC shell currently in the world. Three modules grew their own
+-- copy of this loop; new code should use this one.
+function BNS.liveShells()
+    local out = {}
+    local cell = getCell()
+    local list = cell and cell:getZombieList() or nil
+    if not list then return out end
+    for i = 0, list:size() - 1 do
+        local z = list:get(i)
+        if BNS.isNPC(z) then table.insert(out, z) end
     end
     return out
 end

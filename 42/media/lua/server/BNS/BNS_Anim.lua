@@ -15,6 +15,7 @@
 if isClient() then return end
 
 require "BNS/BNS_Core"
+require "BNS/BNS_Loadouts"
 
 BNS.Anim = {}
 
@@ -38,12 +39,21 @@ function BNS.Anim.set(zombie, brain, mode)
     zombie:setVariable("BNSAnim", mode)
 end
 
--- One-shot modes: swing / shoot / hit. Holds the variable for roughly
--- one clip length, then falls back to the sustained base mode.
-function BNS.Anim.pulse(zombie, brain, mode)
+-- One-shot modes: swing / shoot / hit. Holds the variable for one clip
+-- length, then falls back to the sustained base mode.
+--
+-- The hold is a caller's decision, not a constant, because it has to sit
+-- inside the beat that produced it. Too short and the clip is visibly cut
+-- off part way through the swing; too long and BNSAnim never leaves
+-- "swing" between swings, the condition never changes, and the node has
+-- no edge to re-trigger on -- so the *next* swing plays nothing at all.
+-- BNS.Combat.clipHold works both ends out from the combat cycle.
+BNS.Anim.PULSE_TICKS = 45 -- ~0.75s at 60 ticks/s, when the caller has no better idea
+
+function BNS.Anim.pulse(zombie, brain, mode, ticks)
     if not BNS.Anim.Modes[mode] then return end
     brain.animBase = brain.animBase or "idle"
-    brain.animPulse = 45 -- ~0.75s at 60 ticks/s
+    brain.animPulse = math.max(math.floor(ticks or BNS.Anim.PULSE_TICKS), 1)
     brain.animMode = mode
     zombie:setVariable("BNSAnim", mode)
 end
@@ -85,6 +95,57 @@ function BNS.Anim.weaponClass(weapon)
     if item:find("Axe") or item:find("Sledge") or item:find("Maul") then return "heavy" end
     if item:find("Bat") or item:find("Plank") or item:find("Crowbar") then return "2handed" end
     return "1handed"
+end
+
+-- Which classes need both hands. Which hands a weapon occupies and which
+-- clips it plays are the same question, so they are answered from the
+-- same classification -- a bat carried one-handed and swung with a
+-- two-handed animation looks wrong from either end.
+BNS.Anim.TwoHanded = {
+    ["2handed"] = true, heavy = true, spear = true,
+    firearm = true, chainsaw = true,
+}
+
+-- Ask the item first, because the script is the authority on what it is,
+-- and fall back to the class when the build does not expose the method.
+-- Probed once and remembered: a signature that throws must not be
+-- retried (CLAUDE.md).
+BNS.Anim.twoHandProbe = nil -- nil = untried, true = usable, false = written off
+
+function BNS.Anim.isTwoHanded(item, class)
+    if item and BNS.Anim.twoHandProbe ~= false and item.isTwoHandWeapon then
+        local ok, two = pcall(function() return item:isTwoHandWeapon() end)
+        if ok and type(two) == "boolean" then
+            BNS.Anim.twoHandProbe = true
+            return two
+        end
+        BNS.Anim.twoHandProbe = false
+    end
+    return BNS.Anim.TwoHanded[class] == true
+end
+
+-- Put a weapon in the shell's hands -- in as many hands as it takes --
+-- and point the animation at the matching clip set. Every weapon a shell
+-- ever holds goes through here, so a swap mid-fight is dressed the same
+-- way the initial spawn is.
+function BNS.Anim.equip(zombie, brain, weapon)
+    if weapon then brain.weapon = weapon end
+    local class = BNS.Anim.weaponClass(brain.weapon)
+    local item = nil
+    local id = brain.weapon and brain.weapon.item
+        and BNS.Loadouts.item(brain.weapon.item)
+    if id then item = instanceItem(id) end
+    if item and zombie.setPrimaryHandItem then
+        pcall(function() zombie:setPrimaryHandItem(item) end)
+    end
+    -- Always write the off hand, including clearing it: dropping a rifle
+    -- for a knife has to let go with the hand that was holding the rifle.
+    if zombie.setSecondaryHandItem then
+        local off = (item and BNS.Anim.isTwoHanded(item, class)) and item or nil
+        pcall(function() zombie:setSecondaryHandItem(off) end)
+    end
+    BNS.Anim.setWeapon(zombie, brain)
+    return item
 end
 
 function BNS.Anim.setWeapon(zombie, brain)
