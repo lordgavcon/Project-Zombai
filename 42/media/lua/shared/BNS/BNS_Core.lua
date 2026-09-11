@@ -162,6 +162,9 @@ end
 -- tier is for. Nothing else should branch on `brain.tier`.
 BNS.Behaviour = {
     runSpeed    = 0.7,  -- fraction of a sprint an NPC chases at
+    gunshotHeard = 70,  -- tiles a gunshot carries to an NPC's ear
+    bashHeard   = 30,   -- tiles a door being hammered carries
+    hearingFall = 0.55, -- odds at the edge of a noise vs right under it
     searchLook  = 300,  -- engine ticks spent looking round where they lost you
     robChance   = 40,   -- % chance an engagement opens as a robbery
     fleeHealth  = 0.35, -- below this, a hurt bandit breaks off
@@ -211,6 +214,20 @@ function BNS.squareLoaded(x, y, z)
         return cell:getGridSquare(math.floor(x), math.floor(y), math.floor(z or 0))
     end)
     return ok and sq ~= nil
+end
+
+-- Every NPC shell currently in the world. Three modules grew their own
+-- copy of this loop; new code should use this one.
+function BNS.liveShells()
+    local out = {}
+    local cell = getCell()
+    local list = cell and cell:getZombieList() or nil
+    if not list then return out end
+    for i = 0, list:size() - 1 do
+        local z = list:get(i)
+        if BNS.isNPC(z) then table.insert(out, z) end
+    end
+    return out
 end
 
 function BNS.nearestPlayer(x, y)

@@ -65,6 +65,7 @@ function BNS.Senses.observe(zombie, brain, ctx)
         brain.seenX, brain.seenY = ctx.player:getX(), ctx.player:getY()
         brain.seenZ = ctx.player:getZ()
         brain.lostFor = 0
+        brain.heard = nil  -- eyes beat ears; this is a sighting now
         ctx.goX, ctx.goY, ctx.goZ = brain.seenX, brain.seenY, brain.seenZ
         ctx.lost, ctx.stale = false, false
         ctx.knownDist = ctx.dist
@@ -87,10 +88,84 @@ end
 -- to engine ticks so every timer in the mod means the same thing.
 BNS.Senses.TICK = 10
 
+-- Hearing ---------------------------------------------------------------
+--
+-- A noise is a *place*, which is exactly what the sight memory already
+-- holds, so hearing a gunshot and losing sight of someone land in the
+-- same slot and are answered by the same SEARCH: go there, look around,
+-- give up. Nothing new has to be built for "react to a noise" except the
+-- ear.
+--
+-- Not everyone within earshot comes. The odds fall off towards the edge
+-- of the noise, so a shot brings the street rather than the district, and
+-- two bandits at the same distance do not move like one animal.
+
+-- Programs already busy with something louder than a bang somewhere.
+local DEAF = {
+    [BNS.Program.ATTACK] = true, [BNS.Program.ROB] = true,
+    [BNS.Program.FIGHTZ] = true, [BNS.Program.FLEE] = true,
+    [BNS.Program.RAID] = true,
+}
+
+function BNS.Senses.hears(dist, radius)
+    if dist > radius then return false end
+    local near = 1 - (dist / math.max(radius, 0.1))
+    local odds = BNS.Behaviour.hearingFall
+        + (1 - BNS.Behaviour.hearingFall) * near
+    return ZombRand(100) < odds * 100
+end
+
+-- One NPC's reaction. Split out so the suite can drive a single shell.
+function BNS.Senses.hear(zombie, brain, x, y, z, radius)
+    if not brain or DEAF[brain.program] then return false end
+    if BNS.Combat.isDown(brain) then return false end
+    -- Already looking at something with their own eyes: better information.
+    if (brain.lostFor or 0) == 0 and brain.seenX then return false end
+
+    local d = BNS.dist(zombie:getX(), zombie:getY(), x, y)
+    if not BNS.Senses.hears(d, radius) then return false end
+
+    -- Neutrals do not investigate gunfire, they leave: a trader walking
+    -- towards a firefight is not a person, it is a target.
+    if not BNS.isHostile(brain) then
+        brain.fleeFrom = { x = x, y = y }
+        -- Referenced rather than required: BNS_Programs requires this
+        -- module, so requiring it back would be a cycle.
+        brain.fleeUntil = (BNS.Programs and BNS.Programs.FLEE_TICKS) or 30
+        brain.program = BNS.Program.FLEE
+        return true
+    end
+
+    -- Go and look. The point goes in the same slot a lost sighting uses,
+    -- aged past the grace window so it reads as "somewhere to check"
+    -- rather than "someone I can see".
+    brain.seenX, brain.seenY, brain.seenZ = x, y, z or 0
+    brain.lostFor = BNS.Senses.GRACE + BNS.Senses.TICK
+    brain.searchLook = nil
+    brain.restUntil = nil
+    brain.heard = true  -- so the debug panel can tell an ear from an eye
+    brain.program = BNS.Program.SEARCH
+    BNS.Say(zombie, brain, getText("UI_BNS_HeardThat"))
+    return true
+end
+
+-- Something loud happened here. Called by whatever made the noise.
+function BNS.Senses.noise(x, y, z, radius)
+    local heard = 0
+    for _, zombie in ipairs(BNS.liveShells()) do
+        local brain = BNS.brain(zombie)
+        if brain and BNS.Senses.hear(zombie, brain, x, y, z, radius) then
+            heard = heard + 1
+        end
+    end
+    return heard
+end
+
 function BNS.Senses.forget(brain)
     brain.seenX, brain.seenY, brain.seenZ = nil, nil, nil
     brain.lostFor = nil
     brain.searchLook = nil
+    brain.heard = nil
 end
 
 -- Standing at the last place they saw you, having a look round.

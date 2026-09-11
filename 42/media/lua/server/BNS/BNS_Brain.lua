@@ -341,6 +341,28 @@ function BNS.Brain.onZombieDead(zombie)
     end
 end
 
+-- Player weapons ---------------------------------------------------------
+
+-- A player firing a gun is the loudest thing in an NPC's world, and the
+-- one noise they most obviously ought to answer. OnWeaponSwing fires for
+-- every attack; isAimingFirearmEquipped is what separates a gunshot from
+-- a swing, and it is the character's own method rather than a guess about
+-- what the weapon is.
+function BNS.Brain.onWeaponSwing(character, weapon)
+    if not character or not BNS.Senses then return end
+    if character.isAimingFirearmEquipped then
+        local ok, firearm = pcall(function()
+            return character:isAimingFirearmEquipped()
+        end)
+        if not ok or not firearm then return end
+    else
+        return -- cannot tell a shot from a swing on this build; stay quiet
+    end
+    BNS.Senses.noise(character:getX(), character:getY(), character:getZ(),
+        BNS.Behaviour.gunshotHeard)
+end
+
 Events.OnZombieUpdate.Add(BNS.Brain.onZombieUpdate)
+Events.OnWeaponSwing.Add(BNS.Brain.onWeaponSwing)
 Events.OnWeaponHitCharacter.Add(BNS.Brain.onWeaponHitCharacter)
 Events.OnZombieDead.Add(BNS.Brain.onZombieDead)

@@ -176,6 +176,11 @@ local function smashDoor(zombie, door)
     BNS.Locks.onDoorDestroyed(door)
     zombie:playSound("WoodDoorBreak")
     addSound(zombie, zombie:getX(), zombie:getY(), zombie:getZ(), NOISE_RADIUS_BASH, 50)
+    -- Hammering a door down carries to the living too, not only the dead.
+    if BNS.Senses then
+        BNS.Senses.noise(zombie:getX(), zombie:getY(), zombie:getZ(),
+            BNS.Behaviour.bashHeard)
+    end
     local sq = door.getSquare and door:getSquare() or nil
     local ok = false
     if door.destroy then

@@ -143,6 +143,9 @@ function BNS.Debug.snapshot(player)
             -- What they know about you, which is what pursuit steers by.
             lostFor = brain and brain.lostFor or nil,
             seen = brain and brain.seenX ~= nil or false,
+            -- Where that knowledge came from: an ear reads very
+            -- differently from an eye when you are watching a search.
+            heard = brain and brain.heard or false,
             ammo = brain and brain.ammo and brain.ammo.left or nil,
             mags = brain and brain.ammo and brain.ammo.spares or nil,
             reloading = brain and brain.reloadTimer ~= nil or false,
@@ -663,6 +666,40 @@ BNS.Debug.Scenarios = {
                 note(player, "  WARNING: no line-of-sight check on this build, "
                     .. "so they can still see through walls")
             end
+        end,
+    },
+    noise = {
+        label = "Gunshots + noise",
+        watch = "the bandits walk off towards a bang that came from "
+            .. "somewhere you are not, have a look round, and drift back "
+            .. "to wandering; the survivor goes the other way. Then fire "
+            .. "your own gun -- every NPC in earshot gets the same roll",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 2 })
+            for _, id in ipairs(BNS.Debug.spawnNPC(player,
+                    { role = BNS.Role.SURVIVOR, count = 1 }) or {}) do
+                table.insert(ids, id)
+            end
+            -- Sound the bang well away from the player, so what the panel
+            -- shows is an ear working and not an eye: an NPC that can see
+            -- you ignores noise, because it already knows better.
+            local nx = player:getX() + 25
+            local ny = player:getY() + 25
+            local nz = math.floor(player:getZ())
+            for _, id in ipairs(ids or {}) do
+                local shell = BNS.Debug.findNPC(id)
+                if shell then BNS.Senses.forget(BNS.brain(shell)) end
+            end
+            local heard = BNS.Senses.noise(nx, ny, nz, BNS.Behaviour.gunshotHeard)
+            note(player, string.format(
+                "bang at %d,%d: %d of %d NPCs came to look (a shot carries "
+                    .. "%d tiles, a door bash %d, and the odds fall to %d%% "
+                    .. "at the edge)",
+                math.floor(nx), math.floor(ny), heard, #ids,
+                BNS.Behaviour.gunshotHeard, BNS.Behaviour.bashHeard,
+                math.floor(BNS.Behaviour.hearingFall * 100)))
+            note(player, "the NPCs tab marks an ear [heard n] and an eye "
+                .. "[sees you] -- a hostile that heard it is in search")
         end,
     },
     stagger = {

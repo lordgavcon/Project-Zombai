@@ -14,6 +14,7 @@ UI_EN = {
 	UI_BNS_Reloading = "Reloading! Keep him off me!",
 	UI_BNS_OutOfAmmo = "I'm dry - doing this the hard way!",
 	UI_BNS_Winded = "Give me... a second...",
+	UI_BNS_HeardThat = "You hear that? Go look.",
 	UI_BNS_AttachLock = "Attach combination lock",
 	UI_BNS_RemoveLock = "Remove combination lock",
 	UI_BNS_UseLock = "Open/Close (combination)",

@@ -777,9 +777,21 @@ function BNS.Combat.warningShot(zombie, brain, player)
     ammo.left = math.max(ammo.left - 1, 0)
     BNS.Anim.pulse(zombie, brain, "shoot")
     zombie:playSound(BNS.Combat.gunSound(zombie, brain))
-    addSound(zombie, zombie:getX(), zombie:getY(), zombie:getZ(), 70, 70)
+    BNS.Combat.gunNoise(zombie)
     -- Deliberately no damage roll: the point is that it misses.
     return true
+end
+
+-- A gunshot is heard by the dead *and* the living. addSound is what
+-- brings zombies; BNS.Senses.noise is what brings everyone else, and it
+-- is why a firefight pulls in the neighbourhood rather than staying a
+-- private matter between two people.
+function BNS.Combat.gunNoise(zombie)
+    local x, y, z = zombie:getX(), zombie:getY(), zombie:getZ()
+    addSound(zombie, x, y, z, 70, 70)
+    if BNS.Senses and BNS.Senses.noise then
+        BNS.Senses.noise(x, y, z, BNS.Behaviour.gunshotHeard)
+    end
 end
 
 local function fireRound(zombie, brain, tx, ty, onHit, hitChance)
@@ -787,7 +799,7 @@ local function fireRound(zombie, brain, tx, ty, onHit, hitChance)
     ammo.left = ammo.left - 1
     BNS.Combat.faceTarget(zombie, brain, tx, ty, true)
     zombie:playSound(BNS.Combat.gunSound(zombie, brain))
-    addSound(zombie, zombie:getX(), zombie:getY(), zombie:getZ(), 70, 70)
+    BNS.Combat.gunNoise(zombie)
     if ZombRand(100) < hitChance then onHit() end
 
     -- Burst discipline: rounds inside a burst come fast, then the gun

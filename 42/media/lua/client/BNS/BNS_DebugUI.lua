@@ -35,6 +35,7 @@ local SPAWN_BUTTONS = {
 }
 
 local SCENARIOS = {
+    { name = "noise",     label = "Gunshots + noise" },
     { name = "warning",   label = "Warning shout" },
     { name = "robbery",   label = "Robbery" },
     { name = "doors",     label = "Door rattle" },
@@ -402,7 +403,9 @@ function BNS.DebugUI:rebuildList()
             elseif npc.ammo then flags = flags .. string.format(" [%d+%dmag]", npc.ammo, npc.mags or 0) end
             if npc.down then flags = flags .. " [DOWN]" end
             if npc.staggered then flags = flags .. " [stagger]" end
-            if npc.lostFor and npc.lostFor > 0 then
+            if npc.heard then
+                flags = flags .. " [heard " .. (npc.lostFor or 0) .. "]"
+            elseif npc.lostFor and npc.lostFor > 0 then
                 flags = flags .. " [lost " .. npc.lostFor .. "]"
             elseif npc.seen then flags = flags .. " [sees you]" end
             if (npc.lunges or 0) > 0 then flags = flags .. " [zed x" .. npc.lunges .. "]" end

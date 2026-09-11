@@ -223,4 +223,78 @@ assert(BNS.Programs.speedProbe == false, "and locked out for the session")
 BNS.Programs.speedProbe = nil
 print("chase speed OK (" .. BNS.Behaviour.runSpeed .. " of a sprint)")
 
+-- 8. They react to gunshots and other loud noises ------------------------------------------
+-- A noise is a *place*, which is what the sight memory already holds, so
+-- hearing a shot and losing sight of someone land in the same slot and
+-- are answered by the same search.
+local function hearer(x, y, program)
+    local b = newBrain()
+    b.program = program or BNS.Program.WANDER
+    local n = makeNPC(b, x, y)
+    return n, b
+end
+
+WALL = true
+local near, nb = hearer(5, 0)
+assert(BNS.Senses.hear(near, nb, 0, 0, 0, BNS.Behaviour.gunshotHeard),
+    "a shot going off next to them is heard")
+assert(nb.program == BNS.Program.SEARCH, "and sends them to look")
+assert(nb.seenX == 0 and nb.seenY == 0,
+    "at where the noise came from, got " .. tostring(nb.seenX) .. "," .. tostring(nb.seenY))
+assert((nb.lostFor or 0) > BNS.Senses.GRACE,
+    "aged past the grace window, so it reads as somewhere to check rather "
+        .. "than someone they can see")
+assert(nb.restUntil == nil, "and it interrupts a rest")
+
+-- The search then behaves exactly as it does for a lost sighting.
+local ctx = look(near, nb, makePlayer(900, 900))
+assert(ctx.goX == 0 and ctx.goY == 0, "the search heads for the noise")
+assert(not ctx.stale, "which is still worth walking to")
+print("gunshots are investigated OK")
+
+-- Too far away to hear at all.
+local far, fb = hearer(500, 0)
+assert(not BNS.Senses.hear(far, fb, 0, 0, 0, BNS.Behaviour.gunshotHeard),
+    "a shot on the other side of town is not heard")
+assert(fb.program == BNS.Program.WANDER, "and changes nothing")
+
+-- The odds fall off with distance, so a shot brings the street rather
+-- than the district, and two bandits at the same range do not move like
+-- one animal.
+local underfoot, edge = 0, 0
+for _ = 1, 600 do
+    if BNS.Senses.hears(1, 60) then underfoot = underfoot + 1 end
+    if BNS.Senses.hears(59, 60) then edge = edge + 1 end
+end
+assert(underfoot > edge, "closer is likelier: " .. underfoot .. " vs " .. edge)
+assert(edge > 0, "but the edge of a noise is not silent")
+assert(underfoot <= 600, "sanity")
+print("hearing falls off with distance OK (" .. underfoot .. " vs " .. edge .. " of 600)")
+
+-- Already in a fight: a bang somewhere is not news.
+local fighting, fgb = hearer(3, 0, BNS.Program.ATTACK)
+assert(not BNS.Senses.hear(fighting, fgb, 0, 0, 0, BNS.Behaviour.gunshotHeard),
+    "someone mid-fight does not wander off to investigate")
+assert(fgb.program == BNS.Program.ATTACK, "they stay in it")
+
+-- Watching you with their own eyes beats hearing something.
+local watching, wb = hearer(3, 0)
+WALL = false
+look(watching, wb, makePlayer(4, 0))
+assert(not BNS.Senses.hear(watching, wb, 0, 0, 0, BNS.Behaviour.gunshotHeard),
+    "eyes on you already is better information than a noise")
+WALL = true
+print("noise is ignored when there is better information OK")
+
+-- 9. Neutrals leave rather than investigate ------------------------------------------------
+-- A trader walking towards a firefight is not a person, it is a target.
+local trader, tb = hearer(6, 0)
+tb.role = BNS.Role.TRADER
+assert(BNS.Senses.hear(trader, tb, 0, 0, 0, BNS.Behaviour.gunshotHeard),
+    "they hear it too")
+assert(tb.program == BNS.Program.FLEE, "and get out, got " .. tostring(tb.program))
+assert(tb.fleeFrom and tb.fleeFrom.x == 0, "away from the noise, not towards it")
+assert(tb.seenX == nil, "they are not going to go and look at it")
+print("neutrals leave, hostiles look OK")
+
 print("ALL TESTS PASSED")

@@ -129,6 +129,29 @@ See README.md for the feature list and the code-layout map. Key facts:
   engagement and wander off. `noticesPlayer` is `ctx.visible`, so nobody
   is spotted through a wall either. A build with no `CanSee` behaves
   exactly as before rather than being blinded.
+- **A noise is a place, and a place is what the memory already holds.**
+  Hearing needed no second pursuit system: `BNS.Senses.hear` writes the
+  bang into `brain.seenX/seenY` aged past `GRACE` and switches the NPC to
+  `SEARCH`, so "I heard a shot" and "I lost sight of you" are answered by
+  the same code — walk there, look around, give up. Every noise goes
+  through `BNS.Senses.noise(x, y, z, radius)`, which walks `BNS.liveShells()`
+  and rolls each one separately through `BNS.Senses.hears`: the odds fall
+  from 1 under the noise to `BNS.Behaviour.hearingFall` at its edge, so a
+  shot brings the street rather than the district and two bandits at the
+  same range do not move as one animal. Four rules are load-bearing and
+  none of them may be dropped for a new noise source: an NPC that can
+  *see* the player ignores it (better information), a `DEAF` program is
+  busy with something louder, a neutral flees the noise instead of
+  investigating it (a trader walking towards a firefight is a target, not
+  a person), and a downed NPC hears nothing. `BNS_Senses` must never
+  `require "BNS/BNS_Programs"` — Programs requires it, so the FLEE length
+  is reached lazily through `BNS.Programs`.
+  Emitters pair the engine's own `addSound` (which is what pulls zombies)
+  with the BNS call: `BNS.Combat.gunNoise` for every round BNS fires,
+  `BNS_Doors` for a bash, and `BNS.Brain.onWeaponSwing` for the player's
+  own gun — that one returns early where the build cannot tell a shot
+  from a swing, because a silent miss beats bandits converging on every
+  axe blow.
 - **A chase has to be losable.** `setRunning(true)` gives a shell the
   *zombie* sprint, which is faster than a person. `BNS.Programs.setSpeed`
   pulls a chase back to `NPCRunSpeed` (default 0.7) through a probed
