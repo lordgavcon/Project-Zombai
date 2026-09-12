@@ -394,7 +394,55 @@ assert(BNS.Look.support["clothed"] == false,
     "a shell that could not be dressed is reported, not quietly passed")
 BNS.Look.support = {}
 BNS.Look.broken = {}
+
+-- ...and it stops asking. Dressing is the one op here that must not
+-- re-assert: a build whose worn-item count reads zero for a shell that
+-- is visibly dressed would otherwise hand every bandit a fresh random
+-- outfit every REASSERT_TICKS, which in game is bandits changing clothes
+-- for the rest of their lives.
+local liar = { calls = 0 }
+local lyingShell = {
+    getHumanVisual = function() return nil end,
+    getItemVisuals = function() return nil end,
+    getWornItems = function() return { size = function() return 0 end } end,
+    dressInRandomNonSillyOutfit = function() liar.calls = liar.calls + 1 end,
+}
+local liarBrain = { look = {} } -- one brain, as a single body has
+for _ = 1, 40 do BNS.Look.apply(lyingShell, liarBrain) end
+assert(liar.calls <= BNS.Look.DRESS_TRIES,
+    "a shell is dressed at most DRESS_TRIES times per body, not once per "
+        .. "re-assert (got " .. liar.calls .. ")")
+assert(liarBrain.dressed, "and the question is settled for that body")
+
+-- A new body asks again, because materialise builds the brain afresh
+-- from the record: the latch must not be something a record carries.
+liar.calls = 0
+BNS.Look.apply(lyingShell, { look = {} })
+assert(liar.calls > 0, "a newly materialised shell is looked at again")
+
+-- The outfit an archetype rolled is kept when it lands. The random
+-- fallback used to run unconditionally straight after it, so the
+-- intended outfit was overwritten every single time.
+local worn = 0
+local ownOutfit = { persistent = nil, random = 0 }
+local outfitShell = {
+    getHumanVisual = function() return nil end,
+    getItemVisuals = function() return nil end,
+    getWornItems = function() return { size = function() return worn end } end,
+    dressInPersistentOutfit = function(_, name)
+        ownOutfit.persistent = name
+        worn = 5
+    end,
+    dressInRandomNonSillyOutfit = function() ownOutfit.random = ownOutfit.random + 1 end,
+}
+BNS.Look.apply(outfitShell, { look = { outfit = "Bandit" } })
+assert(ownOutfit.persistent == "Bandit", "their own outfit is tried first")
+assert(ownOutfit.random == 0, "and is not immediately overwritten by a random one")
+
+BNS.Look.support = {}
+BNS.Look.broken = {}
 print("always clothed OK")
+print("dressing does not repeat OK")
 
 -- 6. Item visuals whose setters are per-body-part ------------------------------------
 -- The engine's ItemVisual wants setBlood(BloodBodyPartType, value); the

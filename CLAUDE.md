@@ -400,6 +400,19 @@ Two invariants worth keeping in mind when touching the debug code:
   bandit in the wrong jacket beats a naked one in the right story. It runs
   at materialise as well as on the slow re-assert, because a naked shell
   is naked from the first frame it is drawn, and PROBE prints `worn=`.
+  **But dressing is a one-off, and it is the only op in that pass that
+  is.** Everything else there re-asserts because the engine undoes it;
+  re-running *this* one handed a fresh random outfit to every shell whose
+  worn count read zero, so bandits changed clothes every
+  `REASSERT_TICKS` for the rest of their lives. `getWornItems():size()`
+  is an unverified answer and an unverified answer must never drive a
+  repeated action, so the op latches on `brain.dressed` after at most
+  `BNS.Look.DRESS_TRIES` goes and never asks again — on the *brain*,
+  which materialise rebuilds from the record, so a new body gets a fresh
+  look and no record carries a stale one across an unload. The archetype's
+  own outfit is also kept when it lands: `dressInRandomNonSillyOutfit`
+  used to run unconditionally straight after `dressInPersistentOutfit`
+  and overwrite it every time.
 - **Human skin is not just the skin index.** `HumanVisual` carries a
   `zombieRotStage` -- the decay variant the texture creator composites
   over the body, rolled at spawn by `pickRandomZombieRotStage` -- and

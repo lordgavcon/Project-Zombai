@@ -216,6 +216,10 @@ Non-admin requests are dropped and logged.
   you ignores the noise — they have better information — and anyone
   already in a fight is too busy to care. Firing a gun to pull a horde off
   a building now pulls whoever else is in earshot as well.
+- **They get dressed once.** A bandit who turns up with nothing on is
+  dressed — their archetype's outfit if the build has it, anything at all
+  if not — and that is the end of it. Nobody changes clothes while you
+  watch them.
 - **Push one over and they go over once.** A shove costs them no health,
   puts them on the floor and takes them out of the fight until they are
   up — and then they stay up. Standing over a downed bandit no longer
