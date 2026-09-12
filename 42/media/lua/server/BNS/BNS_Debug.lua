@@ -356,8 +356,6 @@ function BNS.Debug.animProbe(player, args)
     -- One push must produce exactly one of these. More than one off a
     -- single shove is the engine's own account of the knockdown being
     -- read back as a fresh one.
-    note(player, string.format("  dressed: %s after %d attempt(s)",
-        tostring(brain.dressed == true), brain.dressTries or 0))
     note(player, string.format("  knockdowns: %d (down=%s, still getting up=%s)",
         brain.knockdowns or 0, tostring(BNS.Combat.isDown(brain)),
         tostring(BNS.Combat.isRecovering(brain))))
@@ -642,8 +640,8 @@ BNS.Debug.Scenarios = {
         watch = "the bandit's skin is a person's, not a corpse's, and they "
             .. "make no zombie noise; PROBE on the Anim lab prints what the "
             .. "visual says about itself and which restyling ops landed. "
-            .. "Watch one for a few minutes: worn= should never change, "
-            .. "because a dressed bandit is never re-dressed",
+            .. "Watch one for a few minutes: worn= should never change -- "
+            .. "nothing in BNS dresses a shell, so nothing can re-dress one",
         run = function(player)
             local ids = BNS.Debug.spawnNPC(player, { archetype = "cityfolk", count = 2 })
             for _, id in ipairs(ids or {}) do
@@ -651,10 +649,6 @@ BNS.Debug.Scenarios = {
                 if shell then
                     local brain = BNS.brain(shell)
                     brain.program = BNS.Program.WANDER
-                    -- Dressing is latched per body so bandits stop
-                    -- changing clothes on every re-assert; clear it here
-                    -- so the scenario can still exercise that path.
-                    brain.dressed, brain.dressTries = nil, nil
                     BNS.Look.apply(shell, brain)
                     note(player, "  " .. tostring(brain.name) .. ": "
                         .. BNS.Look.describe(shell))
@@ -721,11 +715,11 @@ BNS.Debug.Scenarios = {
         end,
     },
     stagger = {
-        label = "Stagger + always clothed",
+        label = "Stagger",
         watch = "hit them: a solid one knocks them off their beat, takes "
             .. "the swing they were part way through and buys you the next "
-            .. "hit. PROBE reports worn= for what they have on -- it should "
-            .. "never be 0",
+            .. "hit. PROBE reports worn= for what the engine dressed them "
+            .. "in, which BNS never touches",
         run = function(player)
             local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 2 })
             for _, id in ipairs(ids or {}) do

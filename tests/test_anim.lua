@@ -350,99 +350,31 @@ getSpecificPlayer = nil
 BNS.Look.clearSkinCache()
 print("zombie moan silencing OK (" .. #stopped .. " sounds cut)")
 
--- 5c. Nobody turns up naked --------------------------------------------------------------
--- addZombiesInOutfit takes an outfit *name*, and a name this build does
--- not have leaves the shell with nothing on rather than erroring -- so
--- the outfit list is a set of unverifiable strings with a very visible
--- failure mode. The fix is to ask the shell what it is wearing rather
--- than to trust the name.
+-- 5c. BNS does not dress anybody --------------------------------------------------------
+-- It used to: the "clothed" op counted worn items and re-dressed any
+-- shell whose count read zero. That count is not a reliable answer on
+-- this build, so the op fired on every re-assert and bandits changed
+-- clothes for the rest of their lives. Clothing is the engine's job --
+-- shells are created through addZombiesInOutfit and arrive dressed -- so
+-- the op is gone, and the restyling pass must never call a dressing
+-- method again.
 BNS.Look.support = {}
 BNS.Look.broken = {}
-local dressed = { count = 0, calls = 0 }
-local nakedShell = {
-    getHumanVisual = function() return nil end,
-    getItemVisuals = function() return nil end,
-    getWornItems = function()
-        return { size = function() return dressed.count end }
-    end,
-    dressInRandomNonSillyOutfit = function()
-        dressed.calls = dressed.calls + 1
-        dressed.count = 4
-    end,
-}
-BNS.Look.apply(nakedShell, { look = { outfit = "NoSuchOutfit" } })
-assert(dressed.count > 0, "a shell that spawned naked is dressed in something")
-assert(BNS.Look.support["clothed"] == true, "and reported as clothed")
-
--- One that is already dressed is left alone: re-rolling their clothes on
--- every re-assert would change what a bandit looks like as you watch.
-local before = dressed.calls
-for _ = 1, 10 do BNS.Look.apply(nakedShell, { look = {} }) end
-assert(dressed.calls == before, "an already-dressed shell is not re-dressed")
-
--- A build that will not dress them says so rather than reporting success.
-BNS.Look.support = {}
-BNS.Look.broken = {}
-local stubbornlyNaked = {
+local undressable = { dressCalls = 0 }
+local plainShell = {
     getHumanVisual = function() return nil end,
     getItemVisuals = function() return nil end,
     getWornItems = function() return { size = function() return 0 end } end,
-    dressInRandomNonSillyOutfit = function() end,
+    dressInRandomNonSillyOutfit = function() undressable.dressCalls = undressable.dressCalls + 1 end,
+    dressInPersistentOutfit = function() undressable.dressCalls = undressable.dressCalls + 1 end,
 }
-BNS.Look.apply(stubbornlyNaked, { look = {} })
-assert(BNS.Look.support["clothed"] == false,
-    "a shell that could not be dressed is reported, not quietly passed")
+for _ = 1, 40 do BNS.Look.apply(plainShell, { look = { outfit = "Bandit" } }) end
+assert(undressable.dressCalls == 0,
+    "the look pass never dresses a shell, got " .. undressable.dressCalls .. " calls")
+assert(BNS.Look.support["clothed"] == nil, "and there is no clothing op left to report")
 BNS.Look.support = {}
 BNS.Look.broken = {}
-
--- ...and it stops asking. Dressing is the one op here that must not
--- re-assert: a build whose worn-item count reads zero for a shell that
--- is visibly dressed would otherwise hand every bandit a fresh random
--- outfit every REASSERT_TICKS, which in game is bandits changing clothes
--- for the rest of their lives.
-local liar = { calls = 0 }
-local lyingShell = {
-    getHumanVisual = function() return nil end,
-    getItemVisuals = function() return nil end,
-    getWornItems = function() return { size = function() return 0 end } end,
-    dressInRandomNonSillyOutfit = function() liar.calls = liar.calls + 1 end,
-}
-local liarBrain = { look = {} } -- one brain, as a single body has
-for _ = 1, 40 do BNS.Look.apply(lyingShell, liarBrain) end
-assert(liar.calls <= BNS.Look.DRESS_TRIES,
-    "a shell is dressed at most DRESS_TRIES times per body, not once per "
-        .. "re-assert (got " .. liar.calls .. ")")
-assert(liarBrain.dressed, "and the question is settled for that body")
-
--- A new body asks again, because materialise builds the brain afresh
--- from the record: the latch must not be something a record carries.
-liar.calls = 0
-BNS.Look.apply(lyingShell, { look = {} })
-assert(liar.calls > 0, "a newly materialised shell is looked at again")
-
--- The outfit an archetype rolled is kept when it lands. The random
--- fallback used to run unconditionally straight after it, so the
--- intended outfit was overwritten every single time.
-local worn = 0
-local ownOutfit = { persistent = nil, random = 0 }
-local outfitShell = {
-    getHumanVisual = function() return nil end,
-    getItemVisuals = function() return nil end,
-    getWornItems = function() return { size = function() return worn end } end,
-    dressInPersistentOutfit = function(_, name)
-        ownOutfit.persistent = name
-        worn = 5
-    end,
-    dressInRandomNonSillyOutfit = function() ownOutfit.random = ownOutfit.random + 1 end,
-}
-BNS.Look.apply(outfitShell, { look = { outfit = "Bandit" } })
-assert(ownOutfit.persistent == "Bandit", "their own outfit is tried first")
-assert(ownOutfit.random == 0, "and is not immediately overwritten by a random one")
-
-BNS.Look.support = {}
-BNS.Look.broken = {}
-print("always clothed OK")
-print("dressing does not repeat OK")
+print("nothing re-dresses a shell OK")
 
 -- 6. Item visuals whose setters are per-body-part ------------------------------------
 -- The engine's ItemVisual wants setBlood(BloodBodyPartType, value); the

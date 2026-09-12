@@ -566,6 +566,42 @@ BNS.Combat.holdState(noLock, nb, true)
 assert(BNS.Combat.lockProbe == false, "a missing call is settled once")
 assert(not nb.stateLocked, "and nothing pretends to be holding anything")
 BNS.Combat.lockProbe = nil
+
+-- ...and being attacked opens it. The lock engages exactly where a player
+-- stands to shove one, and a frozen state machine has no knockdown and no
+-- stagger to give: shoving a bandit simply did nothing.
+BNS.Combat.lockProbe = nil
+local shoved = makeShell(0, 0, { brain = { id = "m8", role = "bandit",
+    tier = BNS.Tier.THUG, health = 1.0 } })
+local sb = shoved:getModData().BNS
+BNS.Combat.holdState(shoved, sb, true)
+assert(shoved.locked == true, "held while they are being left alone")
+BNS.Combat.openState(shoved, sb)
+assert(shoved.locked == false, "a swing at them drops the hold at once")
+assert(BNS.Combat.isOpen(sb), "and keeps it open for a moment")
+-- It must stay open across the brain ticks the fight happens on, not just
+-- the one the swing landed in.
+for _ = 1, BNS.Combat.OPEN_TICKS - 1 do BNS.Combat.tick(shoved, sb) end
+assert(BNS.Combat.isOpen(sb), "for the whole window")
+BNS.Combat.tick(shoved, sb)
+assert(not BNS.Combat.isOpen(sb), "and then closes on its own")
+BNS.Combat.holdState(shoved, sb, false)
+
+-- Any hit opens it, whether the build calls it a shove or not.
+BNS.Combat.flagProbe = {}
+local struck = makeShell(0, 0, { brain = { id = "m9", role = "bandit",
+    tier = BNS.Tier.THUG, health = 1.0 } })
+local kb = struck:getModData().BNS
+function struck:setHealth() end
+BNS.Combat.holdState(struck, kb, true)
+BNS.Combat.receiveHit(struck, kb, {}, nil, 0)
+assert(struck.locked == false, "being shoved opens it")
+BNS.Combat.holdState(struck, kb, false)
+BNS.Combat.holdState(struck, kb, true)
+BNS.Combat.receiveHit(struck, kb, {}, nil, 1.5)
+assert(struck.locked == false, "and so does being hit with something")
+BNS.Combat.holdState(struck, kb, false)
+BNS.Combat.flagProbe = {}
 print("melee state hold OK")
 
 -- 20. Friendly NPCs never attack a person ---------------------------------

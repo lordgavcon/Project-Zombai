@@ -307,6 +307,30 @@ local function release(zombie, brain)
     end
 end
 
+-- Being attacked opens the lock ----------------------------------------
+--
+-- holdState freezes the shell's engine state machine while a player
+-- stands against it, which is what stops it lunging. But that is also
+-- exactly where a player stands to *shove* one -- and a frozen state
+-- machine cannot play a knockdown or a stagger either, so the push did
+-- nothing at all. The lock is only ever needed for a shell that is being
+-- left alone; the moment someone swings at one, the engine's own
+-- reactions matter more than the lunge we were guarding against.
+BNS.Combat.OPEN_TICKS = 180 -- ~3s of engine reactions after being attacked
+
+function BNS.Combat.isOpen(brain)
+    return brain ~= nil and brain.stateOpen ~= nil
+end
+
+-- Called when a player swings at or hits this NPC. Drops the lock now
+-- rather than at the next brain tick: the hit lands within a few engine
+-- ticks of the swing, long before the brain runs again.
+function BNS.Combat.openState(zombie, brain)
+    if not brain then return end
+    brain.stateOpen = BNS.Combat.OPEN_TICKS
+    BNS.Combat.holdState(zombie, brain, false)
+end
+
 function BNS.Combat.holdState(zombie, brain, want)
     if not BNS.Suppress.lockState then want = false end
     if not want then
@@ -662,9 +686,19 @@ function BNS.Combat.tick(zombie, brain)
     if brain.downPoll <= 0 then
         brain.downPoll = BNS.Combat.DOWN_POLL
         local engineDown = BNS.Combat.readDowned(zombie)
-        -- A disbelieved answer is re-armed by the engine changing its
-        -- mind, never by time.
-        if not engineDown then brain.downMute = nil end
+        if not engineDown then
+            -- A disbelieved answer is re-armed by the engine changing its
+            -- mind, never by time.
+            brain.downMute = nil
+            -- ...and the same for the echo window. The echo of the last
+            -- knockdown is the engine *continuously* saying "down"; once
+            -- it says otherwise, anything it reports after that is a new
+            -- knockdown and has to be believed, or a second shove lands
+            -- on an NPC that BNS thinks is on its feet and walks out of
+            -- it. Running the window down on a timer alone is what made
+            -- shoving stop working after the first push.
+            brain.downGrace = nil
+        end
         -- Sustaining a knockdown already in progress is fine; *starting*
         -- one is refused while the last one is still echoing.
         if engineDown and not brain.downMute
@@ -686,6 +720,10 @@ function BNS.Combat.tick(zombie, brain)
     end
     if brain.shoveTimer and brain.shoveTimer > 0 then
         brain.shoveTimer = brain.shoveTimer - 1
+    end
+    if brain.stateOpen then
+        brain.stateOpen = brain.stateOpen - 1
+        if brain.stateOpen <= 0 then brain.stateOpen = nil end
     end
     if brain.staggerTimer then
         brain.staggerTimer = brain.staggerTimer - 1
@@ -950,6 +988,9 @@ end
 -- rule: a shove puts them down, a swing or a stomp hurts them.
 -- Returns "shoved" or "hurt".
 function BNS.Combat.receiveHit(zombie, brain, attacker, weapon, damage)
+    -- Whatever this turns out to be, someone is attacking them: let the
+    -- engine play its own reactions for a few seconds.
+    BNS.Combat.openState(zombie, brain)
     if BNS.Combat.isShove(attacker, weapon, damage) and not BNS.Combat.isDown(brain) then
         BNS.Combat.goDown(zombie, brain)
         return "shoved"

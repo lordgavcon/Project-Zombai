@@ -125,10 +125,12 @@ function BNS.Spawner.materialise(rec)
     end
     zombie:getModData().BNS = brain
     BNS.Anim.init(zombie, brain)
-    -- Stop it looking like a corpse: living skin, no blood, real hair --
-    -- and clothes. The "clothed" op runs here rather than only on the
-    -- slow re-assert because an outfit name this build does not have
-    -- leaves the shell naked from the first frame it is drawn.
+    -- Stop it looking like a corpse: living skin, no blood, real hair.
+    -- Clothes are the engine's job -- the shell is created through
+    -- addZombiesInOutfit and arrives dressed. BNS used to second-guess
+    -- that by counting worn items and re-dressing anyone who read as
+    -- naked, which on this build meant bandits changing clothes on every
+    -- re-assert; that op is gone.
     BNS.Look.apply(zombie, brain)
     -- Vehicle owners get their ride placed back beside them.
     if BNS.Vehicles then BNS.Vehicles.onMaterialise(zombie, brain, rec) end

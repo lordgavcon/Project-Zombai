@@ -89,6 +89,16 @@ See README.md for the feature list and the code-layout map. Key facts:
   moment that stops being true, and latches off past `LOCK_MAX` — an
   engine flag stuck on must never park an NPC (`BNS.Suppress.lockState`
   switches the whole thing off from the Anim lab).
+  **A locked state machine has no knockdown and no stagger to give
+  either**, and melee range is exactly where a player stands to shove
+  one — so being attacked opens the lock for `BNS.Combat.OPEN_TICKS`
+  (`BNS.Combat.openState`, which releases it there and then rather than
+  at the next brain tick). `receiveHit` opens it, and so does *any*
+  player swing within `BNS.Brain.SWING_OPEN` tiles, because a shove that
+  does no damage may never reach `OnWeaponHitCharacter` at all. The lock
+  is only for a shell nobody is touching; the moment someone swings, the
+  engine's own reactions matter more than the lunge it was guarding
+  against.
   The AnimSet overlays still cover `lunge`, `staggerback` and `thump` as
   the backstop. `brain.lunges` / `brain.zJams` count entries and jams, and
   PROBE prints both — they should stay at zero. The on-ground family is
@@ -399,6 +409,13 @@ Two invariants worth keeping in mind when touching the debug code:
   `receiveHit` may *start* a knockdown, because a push is something we
   were told happened; the poll only ever notices one, and a notice can
   echo. `brain.knockdowns` counts them and PROBE prints it.
+  **But an echo is the engine saying "down" without ever stopping, not a
+  stretch of time.** Both `downGrace` and `downMute` are therefore
+  cleared the moment the poll reads "not down", and their tick counts are
+  only deadlines. Running the grace out on the clock alone meant a second
+  shove landed on an NPC BNS believed was upright — it kept driving them,
+  walking them straight out of the engine's knockdown, which from the
+  player's side is shoving that stops working after the first push.
 - **A shell has to be turned towards what it is hitting.** It points
   wherever the engine last left it -- usually the way it was walking --
   so bandits swung with their back to the player until
@@ -406,28 +423,19 @@ Two invariants worth keeping in mind when touching the debug code:
   and on a throttle in between (facing is an engine command; per-tick
   engine commands are what make NPCs skate). Shooters face on each round
   and while holding aim.
-- **Never trust an outfit name; ask what they are wearing.**
-  `addZombiesInOutfit` takes an outfit *name*, and a name this build does
-  not have leaves the shell with nothing on rather than erroring — which
-  is how bandits turned up naked. `BNS.Look`'s `clothed` op reads
-  `getWornItems():size()` and, only when that is zero, dresses them with
-  `dressInRandomNonSillyOutfit`, which needs no name at all. A clothed
-  bandit in the wrong jacket beats a naked one in the right story. It runs
-  at materialise as well as on the slow re-assert, because a naked shell
-  is naked from the first frame it is drawn, and PROBE prints `worn=`.
-  **But dressing is a one-off, and it is the only op in that pass that
-  is.** Everything else there re-asserts because the engine undoes it;
-  re-running *this* one handed a fresh random outfit to every shell whose
-  worn count read zero, so bandits changed clothes every
-  `REASSERT_TICKS` for the rest of their lives. `getWornItems():size()`
-  is an unverified answer and an unverified answer must never drive a
-  repeated action, so the op latches on `brain.dressed` after at most
-  `BNS.Look.DRESS_TRIES` goes and never asks again — on the *brain*,
-  which materialise rebuilds from the record, so a new body gets a fresh
-  look and no record carries a stale one across an unload. The archetype's
-  own outfit is also kept when it lands: `dressInRandomNonSillyOutfit`
-  used to run unconditionally straight after `dressInPersistentOutfit`
-  and overwrite it every time.
+- **BNS does not dress anybody, and must not start again.** The shell is
+  created through `addZombiesInOutfit` and arrives dressed — the engine's
+  own log line says what in (`Spawning new Male Zed, Dressed in Ghillie`).
+  BNS used to second-guess that with a `clothed` op that read
+  `getWornItems():size()` and re-dressed anyone whose count came back
+  zero. That count is not a usable answer on this build: it read zero for
+  visibly dressed shells, so the op fired on every re-assert and bandits
+  changed clothes for the rest of their lives. Latching it per body only
+  reduced how often. The op is **gone**, `tests/test_anim.lua` fails if
+  the restyling pass calls any dressing method again, and `worn=` in
+  PROBE is now an observation with nothing acting on it. If naked shells
+  ever turn up, fix it at the spawner's outfit *name* — never by counting
+  worn items on a tick.
 - **Human skin is not just the skin index.** `HumanVisual` carries a
   `zombieRotStage` -- the decay variant the texture creator composites
   over the body, rolled at spawn by `pickRandomZombieRotStage` -- and

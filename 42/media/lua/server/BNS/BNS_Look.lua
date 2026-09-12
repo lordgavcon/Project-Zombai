@@ -26,14 +26,9 @@ BNS.Look.broken = {}
 
 local REASSERT_TICKS = 300 -- full brain ticks between re-applications
 
--- How many times a single body may be dressed before BNS stops asking.
--- One attempt covers the naked shell; the second exists only for a build
--- that has not finished dressing the zombie when it materialises, and is
--- never reached when the first attempt visibly worked.
-BNS.Look.DRESS_TRIES = 2
-
--- How many things the shell says it has on. Wrapped because it is read
--- in three places and pcall'd in all of them.
+-- How many things the shell says it has on. Read only by the debug
+-- probe now: BNS used to dress shells whose count read zero, and that
+-- count is not a reliable answer on this build, so nothing acts on it.
 local function wornCount(zombie)
     local w = zombie:getWornItems()
     return w and w:size() or 0
@@ -155,72 +150,6 @@ local OPS = {
             if not name then return false end
             v:setSkinTextureName(name)
             return true
-        end,
-    },
-    {
-        -- Bandits were turning up naked. `addZombiesInOutfit` takes an
-        -- outfit *name*, and a name this build does not have leaves the
-        -- shell with nothing on rather than erroring -- so the outfit
-        -- list is a set of unverifiable strings with a very visible
-        -- failure mode. Rather than guess at names, ask the shell what it
-        -- is actually wearing and dress it if the answer is "nothing":
-        -- dressInRandomNonSillyOutfit needs no name at all.
-        --
-        -- Getting dressed is a one-off, and the rest of this pass is not:
-        -- everything else here re-asserts because the engine undoes it,
-        -- but re-running *this* every REASSERT_TICKS handed a fresh random
-        -- outfit to every bandit whose worn-item count read zero, so
-        -- bandits changed clothes every minute for the rest of their
-        -- lives. `getWornItems():size()` is an unverified answer, and an
-        -- unverified answer must never drive a repeated action -- so the
-        -- shell is dressed at most DRESS_TRIES times per body and then
-        -- left alone whatever it claims to be wearing. The latch is on
-        -- the brain, which materialise rebuilds from the record, so a new
-        -- body gets a fresh look at the question and a record carries no
-        -- stale answer across an unload.
-        name = "clothed",
-        apply = function(zombie, look, brain)
-            if not brain or brain.dressed then return true end
-            if not zombie.getWornItems then return false end
-            local ok, worn = pcall(wornCount, zombie)
-            if not ok then return false end
-            if worn > 0 then
-                -- Already dressed: nothing to do, now or ever again.
-                brain.dressed = true
-                return true
-            end
-
-            -- Naked. Try the outfit they were meant to have first, and
-            -- keep it if it landed -- the random fallback used to run
-            -- unconditionally straight afterwards, so the outfit an
-            -- archetype rolled was overwritten every single time. Failing
-            -- that, anything at all: a clothed bandit in the wrong jacket
-            -- beats a naked one in the right story.
-            if look and look.outfit and zombie.dressInPersistentOutfit then
-                pcall(function() zombie:dressInPersistentOutfit(look.outfit) end)
-                local okOwn, own = pcall(wornCount, zombie)
-                if okOwn then worn = own end
-            end
-            if worn == 0 and zombie.dressInRandomNonSillyOutfit then
-                pcall(function() zombie:dressInRandomNonSillyOutfit() end)
-                local okAny, any = pcall(wornCount, zombie)
-                if okAny then worn = any end
-            end
-
-            brain.dressTries = (brain.dressTries or 0) + 1
-            -- Stop asking once it worked, and stop asking anyway once the
-            -- tries are spent: a build whose worn-item count always reads
-            -- zero would otherwise re-dress them for ever, which is the
-            -- bug this whole latch exists to kill.
-            if worn > 0 or brain.dressTries >= BNS.Look.DRESS_TRIES then
-                brain.dressed = true
-            end
-            if worn > 0 then
-                BNS.log("re-dressed a shell that spawned with nothing on"
-                    .. " (outfit '" .. tostring(look and look.outfit) .. "')")
-                return true
-            end
-            return false
         end,
     },
     {
@@ -417,7 +346,7 @@ function BNS.Look.apply(zombie, brain)
     local applied = 0
     for _, op in ipairs(OPS) do
         if not BNS.Look.broken[op.name] then
-            local ok, did = pcall(function() return op.apply(zombie, look, brain) end)
+            local ok, did = pcall(function() return op.apply(zombie, look) end)
             if not ok then
                 -- An op that threw is asking the engine for something this
                 -- build does not have. Retrying it every re-assert turns one

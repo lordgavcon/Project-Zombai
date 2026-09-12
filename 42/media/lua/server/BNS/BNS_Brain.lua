@@ -227,14 +227,18 @@ local function updateNPC(zombie, brain)
     -- attacks are simulated and the animation comes from the AnimSet
     -- variables. Hostile ones swing at you from here; friendly ones do
     -- nothing at all, which is the point.
-    -- ...but never while they are on the floor or still getting off it:
-    -- freezing the state machine part way through a get-up is another way
-    -- to make one shove look like a bandit falling over repeatedly.
+    -- ...but never while they are on the floor, still getting off it, or
+    -- being attacked. Freezing the state machine part way through a
+    -- get-up is another way to make one shove look like a bandit falling
+    -- over repeatedly -- and freezing it while a player is swinging at
+    -- them is why shoving stopped working at all: a locked state machine
+    -- has no knockdown and no stagger to give.
     BNS.Combat.holdState(zombie, brain,
         ctx.dist <= BNS.Programs.MELEE_HOLD_DIST
             and brain.stopped == true
             and not BNS.Combat.isDown(brain)
-            and not BNS.Combat.isRecovering(brain))
+            and not BNS.Combat.isRecovering(brain)
+            and not BNS.Combat.isOpen(brain))
 
     -- Survivors and traders don't fight players — but they do fight
     -- zombies, and zombies scare everyone.
@@ -366,7 +370,26 @@ function BNS.Brain.onWeaponSwing(character, weapon)
         BNS.Behaviour.gunshotHeard)
 end
 
+-- Anyone swinging at arm's length of an NPC unlocks its engine state
+-- machine, whether or not the blow lands and whether or not the build
+-- reports it as a hit. A shove that does no damage may never reach
+-- onWeaponHitCharacter at all, and the whole reason it looked like
+-- shoving was broken is that BNS was holding the shell's state machine
+-- shut at exactly that moment.
+BNS.Brain.SWING_OPEN = 3 -- tiles
+
+function BNS.Brain.onPlayerSwing(character)
+    if not character or not BNS.Combat then return end
+    local x, y = character:getX(), character:getY()
+    for _, shell in ipairs(BNS.liveShells()) do
+        if BNS.dist(x, y, shell:getX(), shell:getY()) <= BNS.Brain.SWING_OPEN then
+            BNS.Combat.openState(shell, BNS.brain(shell))
+        end
+    end
+end
+
 Events.OnZombieUpdate.Add(BNS.Brain.onZombieUpdate)
 Events.OnWeaponSwing.Add(BNS.Brain.onWeaponSwing)
+Events.OnWeaponSwing.Add(BNS.Brain.onPlayerSwing)
 Events.OnWeaponHitCharacter.Add(BNS.Brain.onWeaponHitCharacter)
 Events.OnZombieDead.Add(BNS.Brain.onZombieDead)

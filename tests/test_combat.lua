@@ -696,6 +696,35 @@ assert(BNS.Combat.receiveHit(onceNpc, onceBrain, pusher, nil, 0) == "shoved",
     "a later push still floors them")
 assert(BNS.Combat.isDown(onceBrain), "one push, one fall -- every time")
 
+-- ...including one the engine reports rather than one BNS was told
+-- about. The echo window must not blind BNS to a *new* knockdown: it is
+-- the engine continuously saying "down" that is the echo, so once the
+-- engine says otherwise the next "down" is real. Running that window out
+-- on a timer alone left a shoved bandit on the floor with BNS convinced
+-- they were upright, walking them out of it -- which from the player's
+-- side is shoving that stopped working after the first push.
+BNS.Combat.flagProbe = {}
+local againBrain = newBrain(axe)
+local againNpc = makeNPC(againBrain, 0, 0)
+function againNpc:setHealth() end
+againNpc.engineSays = "ZombieOnGroundState"
+function againNpc:getCurrentStateName() return self.engineSays end
+
+BNS.Combat.goDown(againNpc, againBrain)
+local first = againBrain.knockdowns
+-- They get up, and the engine agrees they are up.
+againNpc.engineSays = "IdleState"
+for _ = 1, BNS.Combat.GETUP_TICKS + BNS.Combat.DOWN_POLL do
+    step(againNpc, againBrain, makePlayer(1, 0))
+end
+assert(not BNS.Combat.isDown(againBrain), "they are back on their feet")
+-- Now they are shoved again, and only the engine knows.
+againNpc.engineSays = "ZombieOnGroundState"
+for _ = 1, BNS.Combat.DOWN_POLL + 1 do step(againNpc, againBrain, makePlayer(1, 0)) end
+assert(BNS.Combat.isDown(againBrain),
+    "a fresh knockdown the engine reports is believed, not written off as an echo")
+assert(againBrain.knockdowns == first + 1, "and counted as its own fall")
+
 -- An engine that never stops saying "down" must not turn into a bandit
 -- falling over on a loop either: the deadline disbelieves the answer
 -- until the engine changes its mind, rather than re-arming on a timer.
