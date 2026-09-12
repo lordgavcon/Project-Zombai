@@ -43,7 +43,11 @@ Events = setmetatable({}, { __index = function(t, k)
     rawset(t, k, h); return h
 end })
 
+function instanceItem(id) return { id = id } end
+ScriptManager = { instance = { getItem = function() return true end } }
+
 require("BNS/BNS_Core")
+require("BNS/BNS_Persistence")
 require("BNS/BNS_Programs")
 
 -- A shell that records path orders and reports whether it still holds one.
@@ -121,6 +125,103 @@ for _ = 1, 20 do BNS.Programs.walkTo(z, 10, 10, 0, false) end
 assert(calls == 1, "a throwing query is called once, got " .. calls)
 assert(BNS.Programs.pathProbe == false, "and locked out for the session")
 print("throwing path query is locked out OK (" .. calls .. " calls across 20 ticks)")
+
+-- 4b. A wandering bandit actually wanders --------------------------------------------------
+-- "Set them to wander and they just stand still" was not a pathing bug:
+-- destinations were being picked out of a box around a point with no
+-- regard for where the NPC already was, so the destination was routinely
+-- the tile underfoot. They "arrived" at once, rolled a rest, and stood
+-- there -- worst for a bandit in a squad, whose bubble is ten tiles wide
+-- and whose anchor follows its own members. What is asserted here is the
+-- behaviour, not the numbers: they cover ground.
+local function wanderShell(brain, x, y)
+    local z = makeShell(brain)
+    z.x, z.y = x, y
+    function z:getX() return self.x end
+    function z:getY() return self.y end
+    function z:pathToLocationF(px, py)
+        self.orders = self.orders + 1
+        self.path = true
+        self.goal = { px, py }
+    end
+    function z:clearPath() self.goal = nil; self.path = false end
+    function z:setMoving() end
+    function z:StopAllActionQueue() end
+    function z:CanSee() return false end
+    function z:setSpeedMod() end
+    function z:playSound() end
+    function z:setHeadLookAround(v) self.looking = v end
+    function z:getOnlineID() return 1 end
+    return z
+end
+
+-- Walk the shell towards its last order, roughly a person's pace, and
+-- report how much of the time it was actually going somewhere.
+local WALK = 0.45 -- tiles per full brain tick
+local function wanderFor(brain, npc, ticks)
+    local away = { getX = function() return 9000 end, getY = function() return 9000 end,
+                   getZ = function() return 0 end, isDead = function() return false end,
+                   isSneaking = function() return false end,
+                   isAiming = function() return false end,
+                   isRunning = function() return false end }
+    local moving, travelled = 0, 0
+    for _ = 1, ticks do
+        local ctx = { player = away, dist = 9000 }
+        BNS.Senses.observe(npc, brain, ctx)
+        BNS.Programs[brain.program](npc, brain, ctx)
+        local px, py = npc.x, npc.y
+        if npc.goal and BNS.dist(npc.x, npc.y, npc.goal[1], npc.goal[2]) > 0.3 then
+            local dx, dy = npc.goal[1] - npc.x, npc.goal[2] - npc.y
+            local d = math.max(BNS.dist(0, 0, dx, dy), 0.001)
+            npc.x, npc.y = npc.x + dx / d * WALK, npc.y + dy / d * WALK
+        end
+        local step = BNS.dist(px, py, npc.x, npc.y)
+        if step > 0.01 then moving = moving + 1 end
+        travelled = travelled + step
+    end
+    return moving / ticks, travelled
+end
+
+local TICKS = 1800 -- about five minutes of full brain ticks
+BNS.Programs.pathProbe = nil
+local lone = { id = "w1", role = BNS.Role.BANDIT, tier = BNS.Tier.THUG,
+               health = 1.0, animMode = "idle", stamina = 1.0,
+               program = BNS.Program.WANDER }
+local loneShell = wanderShell(lone, 0, 0)
+local loneMoving, loneDist = wanderFor(lone, loneShell, TICKS)
+assert(loneMoving > 0.4, "a lone bandit spends most of its time walking, got "
+    .. math.floor(loneMoving * 100) .. "%")
+
+-- The squad case is the one that was broken: the group's bubble is small
+-- and its anchor sits on top of its own members.
+BNS.Squads.create(BNS.Persistence.getState(), "wsq", 0, 0)
+local grouped = { id = "w2", role = BNS.Role.BANDIT, tier = BNS.Tier.THUG,
+                  health = 1.0, animMode = "idle", stamina = 1.0,
+                  program = BNS.Program.WANDER, squad = "wsq" }
+local groupShell = wanderShell(grouped, 0, 0)
+local sqMoving, sqDist = wanderFor(grouped, groupShell, TICKS)
+assert(sqMoving > 0.15, "a bandit in a squad mills about rather than standing still, got "
+    .. math.floor(sqMoving * 100) .. "%")
+assert(sqDist > 100, "and covers real ground, got " .. math.floor(sqDist) .. " tiles")
+-- ...without leaving the group, which is the constraint that makes the
+-- destination small in the first place.
+assert(BNS.dist(groupShell.x, groupShell.y, 0, 0) < BNS.Squads.COHESION * 2,
+    "and stays with its squad")
+
+-- The pause is a look round, not a nap: that is the "looking for the
+-- player" half of wandering, and it is what SEARCH does on arrival too.
+grouped.restUntil = 30
+groupShell.looking = nil
+BNS.Programs[BNS.Program.WANDER](groupShell, grouped,
+    { player = nil, dist = 9000, visible = false })
+assert(groupShell.looking == true, "a resting bandit looks around")
+grouped.restUntil = 1
+BNS.Programs[BNS.Program.WANDER](groupShell, grouped,
+    { player = nil, dist = 9000, visible = false })
+assert(groupShell.looking == false, "and stops when they move off again")
+print(string.format("wandering bandits wander OK (alone %d%%/%d tiles, in a squad %d%%/%d tiles)",
+    math.floor(loneMoving * 100), math.floor(loneDist),
+    math.floor(sqMoving * 100), math.floor(sqDist)))
 
 -- 5. Shell suppression: the unverified parking calls are off by default -------------------
 -- setUseless/makeInactive were added on a guess about what they do, and a

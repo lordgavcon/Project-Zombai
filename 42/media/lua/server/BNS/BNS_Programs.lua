@@ -201,11 +201,26 @@ end
 -- WANDER ----------------------------------------------------------------
 
 -- Wandering is a slow amble with pauses, not a forced march: on arriving
--- somewhere an NPC usually stands around for a while before picking the
--- next destination. Counted in full brain ticks (~6 per second).
-BNS.Programs.REST_CHANCE = 65
-BNS.Programs.REST_MIN = 60   -- ~10s
-BNS.Programs.REST_MAX = 300  -- ~50s
+-- somewhere an NPC stands around for a few seconds, has a look about for
+-- whoever might be out there, and then picks somewhere new. Counted in
+-- full brain ticks (~6 per second).
+--
+-- The balance here is the whole program. It used to rest two arrivals in
+-- three for up to fifty seconds at a time, and a squad's destinations
+-- came out of a ten-tile bubble centred on an anchor that follows its own
+-- members -- so the destination routinely landed on the tile the bandit
+-- was already standing on. They "arrived" at once, rolled a rest, and
+-- stood there: a bandit in a squad moved two percent of the time, which
+-- from the outside is a bandit that does not walk at all.
+BNS.Programs.REST_CHANCE = 35
+BNS.Programs.REST_MIN = 30   -- ~5s
+BNS.Programs.REST_MAX = 120  -- ~20s
+
+-- Somewhere nearer than this is not somewhere to go. Without it a
+-- destination can be the tile underfoot.
+BNS.Programs.WANDER_MIN = 8
+BNS.Programs.WANDER_REACH = 30  -- usual drift for a bandit with no group
+BNS.Programs.WANDER_TREK = 200  -- and the occasional long walk
 
 -- Resting is only for quiet moments. "Quiet" means no zombie being
 -- tracked: a nearby *player* must not count, or NPCs would never stand
@@ -227,9 +242,15 @@ BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
         if brain.restUntil > 0 and not threatened(zombie, brain, ctx)
                 and not BNS.Squads.strayed(brain, zombie:getX(), zombie:getY()) then
             BNS.Programs.stopMoving(zombie, brain, "idle")
+            -- A pause is a look round, not a nap: the same scan SEARCH
+            -- uses when it arrives somewhere. It is also the honest
+            -- animation for a bandit who is between errands and would
+            -- very much like to find somebody.
+            BNS.Senses.lookAround(zombie, true)
             return
         end
         brain.restUntil = nil
+        BNS.Senses.lookAround(zombie, false)
     end
     -- Now and then, go loot a nearby building instead of drifting on.
     if BNS.Scavenge and ZombRand(400) == 0
@@ -247,7 +268,7 @@ BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
     BNS.Squads.maybeTrek(brain)
 
     if arrived(zombie, brain, 3) then
-        -- Arrived: usually take a breather before choosing somewhere new.
+        -- Arrived: sometimes take a breather before choosing somewhere new.
         local sx, sy, urgent = BNS.Squads.wanderTarget(brain, x, y)
         if not urgent and not threatened(zombie, brain, ctx)
                 and ZombRand(100) < BNS.Programs.REST_CHANCE then
@@ -262,10 +283,12 @@ BNS.Programs[BNS.Program.WANDER] = function(zombie, brain, ctx)
             -- correction dragged out of them afterwards.
             brain.targetX, brain.targetY = sx, sy
         else
-            -- Alone: nearby drift, occasionally a long trek.
-            local reach = ZombRand(100) < 10 and 200 or 30
-            brain.targetX = x + ZombRand(-reach, reach + 1)
-            brain.targetY = y + ZombRand(-reach, reach + 1)
+            -- Alone: nearby drift, occasionally a long trek -- and never
+            -- a destination they are already standing on.
+            local reach = ZombRand(100) < 10
+                and BNS.Programs.WANDER_TREK or BNS.Programs.WANDER_REACH
+            brain.targetX, brain.targetY = BNS.scatterPoint(x, y, x, y,
+                reach, BNS.Programs.WANDER_MIN)
         end
     elseif BNS.Squads.strayed(brain, x, y) then
         -- Wandered out of the group's reach part way to somewhere else.

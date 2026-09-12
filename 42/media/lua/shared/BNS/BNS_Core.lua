@@ -97,6 +97,35 @@ function BNS.dist(x1, y1, x2, y2)
     return math.sqrt(dx * dx + dy * dy)
 end
 
+-- Somewhere worth walking to.
+--
+-- Picking a destination out of a box around a point says nothing about
+-- how far it is from the person being sent there, and a destination you
+-- are already standing on is not a destination: the NPC "arrives"
+-- immediately, rolls a rest, and stands there. That is what made a
+-- bandit in a squad move two percent of the time -- the group's bubble
+-- is only ten tiles wide and the anchor follows its own members, so the
+-- box kept landing on top of them.
+--
+-- So roll a few and keep the furthest; if even that is too close, strike
+-- out in a random direction instead. Callers keep their own bounds: a
+-- point `minDist` from someone already inside a bubble is still inside
+-- it as long as the bubble is wider than minDist.
+function BNS.scatterPoint(fromX, fromY, centreX, centreY, reach, minDist)
+    local bestX, bestY, bestD = nil, nil, -1
+    for _ = 1, 8 do
+        local cx = centreX + ZombRand(-reach, reach + 1)
+        local cy = centreY + ZombRand(-reach, reach + 1)
+        local d = BNS.dist(fromX, fromY, cx, cy)
+        if d >= minDist then return cx, cy end
+        if d > bestD then bestX, bestY, bestD = cx, cy, d end
+    end
+    if bestD >= minDist then return bestX, bestY end
+    -- Nowhere in the box is far enough: pick a heading and walk.
+    local angle = ZombRandFloat(0, math.pi * 2)
+    return fromX + math.cos(angle) * minDist, fromY + math.sin(angle) * minDist
+end
+
 -- Is this IsoZombie one of our NPC shells?
 function BNS.isNPC(zombie)
     if not zombie or not instanceof(zombie, "IsoZombie") then return false end

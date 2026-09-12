@@ -34,6 +34,9 @@ BNS.Squads.REGROUP = 12  -- tiles: walk back to at least this close
 -- so cohesion is mostly a property of where they choose to go rather than
 -- something that has to drag them back.
 BNS.Squads.MILL = 10
+-- ...and how far from where they are standing a milling destination has
+-- to be before it is worth the walk.
+BNS.Squads.MILL_MIN = 6
 
 -- Chance per full brain tick that a member decides the group should move
 -- on, and how far it takes them.
@@ -175,10 +178,15 @@ function BNS.Squads.wanderTarget(brain, x, y)
         return squad.x + dx * pull, squad.y + dy * pull, true
     end
 
-    -- Milling about near the others.
-    local mill = BNS.Squads.MILL
-    return squad.x + ZombRand(-mill, mill + 1),
-           squad.y + ZombRand(-mill, mill + 1), false
+    -- Milling about near the others -- but somewhere they are not already
+    -- standing. The bubble is only MILL wide and the anchor follows its
+    -- own members, so a plain roll inside it kept handing people the tile
+    -- under their feet: they arrived instantly, rested, and never moved.
+    -- MILL_MIN is under MILL so a point this far from a member who is
+    -- inside the bubble is still comfortably inside COHESION.
+    local x2, y2 = BNS.scatterPoint(x, y, squad.x, squad.y,
+        BNS.Squads.MILL, BNS.Squads.MILL_MIN)
+    return x2, y2, false
 end
 
 -- Has this member been left behind by the group?

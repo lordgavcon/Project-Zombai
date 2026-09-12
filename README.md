@@ -172,7 +172,7 @@ Debug panel*). Five tabs:
 | World | Live/virtual NPC counts, sandbox options (click a boolean to toggle it live), every known point of interest (fortified ones flagged with their garrison size) with **Teleport to POI** and Fortify nearest, and detected player bases with raid-cooldown countdowns |
 | NPCs | Every NPC with program, health, archetype, distance and flags — including what each one knows about you and how: `[sees you]`, `[lost n]` after losing sight, `[heard n]` when they are walking towards a noise rather than a sighting; select one to Go to / Bring here / Kill / cycle its program / give it a vehicle / swarm it with zombies. Also toggles the overlay |
 | Spawn | One click per archetype (farmer, city folk, thug, police, firefighter, ex-military) plus survivor and trader, 1–5 at a time as a squad; raid me, fortify a POI, drop a loot box, spawn a horde, clear all NPCs |
-| Scenarios | Eleven one-click behaviour tests — gunshots & noise, warning shot, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |
+| Scenarios | Twelve one-click behaviour tests — wander patrol, gunshots & noise, warning shot, robbery, door rattle, locked-door bash, zombie overwhelm, scavenge & evidence, trader barter, vehicle haul, base raid, POI fortification — each stages the situation and tells you what to watch for |
 | Anim lab | Force any `BNSAnim` mode on the selected NPC so each overlay node can be confirmed one at a time, plus **PROBE** — the shell read back as the engine sees it: the AnimState it is actually in (`getCurrentStateName` / `getAnimationStateName`, which is what decides *which* directory's nodes can play), the `BNSNPC` / `BNSAnim` / `Weapon` variables, whether it still holds the path we ordered, and how far it moved since the last probe. Toggles for the `useless` / `inactive` / `clearTarget` suppression calls sit alongside it, so "do these park the shell?" can be answered in game |
 | Log | The mod's own `[BNS]` event log, newest first, without tailing `console.txt` |
 
@@ -216,6 +216,11 @@ Non-admin requests are dropped and logged.
   you ignores the noise — they have better information — and anyone
   already in a fight is too busy to care. Firing a gun to pull a horde off
   a building now pulls whoever else is in earshot as well.
+- **Bandits patrol.** Left to themselves they walk — somewhere a good
+  distance off, at an amble, stopping every so often for a few seconds to
+  stand and look around before moving on. A group mills about its own
+  patch rather than standing in it. If one is standing still, they have
+  either just arrived somewhere or they have seen something.
 - **They get dressed once.** A bandit who turns up with nothing on is
   dressed — their archetype's outfit if the build has it, anything at all
   if not — and that is the end of it. Nobody changes clothes while you

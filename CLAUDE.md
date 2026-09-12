@@ -218,6 +218,21 @@ See README.md for the feature list and the code-layout map. Key facts:
   no longer throttles creation, so `BNS.recordCeiling()`
   (`maxLive * BNS.VirtualPool`) bounds the record pool and is checked per
   *record*, not per group.
+- **A destination you are standing on is not a destination.** WANDER
+  picks somewhere, walks there, and rests on arrival — so a destination
+  rolled out of a box around a point, with no regard for where the NPC
+  already is, means arriving instantly and resting instead of moving.
+  That is what "set them to wander and they just stand still" was, and it
+  was worst in a squad: the mill bubble is `MILL` wide and its anchor
+  *follows its own members*, so the box kept landing on the tile
+  underfoot. A bandit in a squad moved 2% of the time. Every wander
+  destination now goes through `BNS.scatterPoint`, which will not return
+  a point nearer than a caller's minimum (`BNS.Programs.WANDER_MIN`,
+  `BNS.Squads.MILL_MIN`), and the rest cadence is a short look round
+  rather than most of the minute. `tests/test_movement.lua` asserts the
+  fraction of time a wandering bandit is actually going somewhere, alone
+  and in a group — the numbers there are the point of the program, so
+  never tune `REST_CHANCE`/`REST_MIN`/`REST_MAX` without re-reading them.
 - **Bandits arrive as a group and stay one — on both sides of the
   boundary.** `BNS_Squads` owns it. A squad is *managed* exactly when it
   has an entry in `state.squads`: wandering bandit groups get one at

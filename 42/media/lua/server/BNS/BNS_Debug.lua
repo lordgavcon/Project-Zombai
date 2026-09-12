@@ -746,6 +746,43 @@ BNS.Debug.Scenarios = {
                 BNS.Behaviour.standChance, BNS.Behaviour.bashDamage))
         end,
     },
+    patrol = {
+        label = "Wander patrol",
+        watch = "watch them for a minute: they should be walking most of "
+            .. "the time, pausing for a few seconds here and there to look "
+            .. "about, then moving on -- not standing on one tile. Each "
+            .. "one's destination is printed below; none of them should be "
+            .. "somewhere the bandit is already standing",
+        run = function(player)
+            local ids = BNS.Debug.spawnNPC(player, { archetype = "thug", count = 3 })
+            for _, id in ipairs(ids or {}) do
+                local shell = BNS.Debug.findNPC(id)
+                if shell then
+                    local brain = BNS.brain(shell)
+                    brain.program = BNS.Program.WANDER
+                    brain.restUntil, brain.targetX, brain.targetY = nil, nil, nil
+                    -- Ask for a destination the way WANDER does, so the
+                    -- answer printed here is the answer they will act on.
+                    local x, y = shell:getX(), shell:getY()
+                    local tx, ty = BNS.Squads.wanderTarget(brain, x, y)
+                    if not tx then
+                        tx, ty = BNS.scatterPoint(x, y, x, y,
+                            BNS.Programs.WANDER_REACH, BNS.Programs.WANDER_MIN)
+                    end
+                    note(player, string.format("  %s -> %d,%d (%d tiles off)",
+                        tostring(brain.name), math.floor(tx), math.floor(ty),
+                        math.floor(BNS.dist(x, y, tx, ty))))
+                end
+            end
+            note(player, string.format(
+                "a destination is never nearer than %d tiles (%d inside a "
+                    .. "squad's bubble); they rest on %d%% of arrivals for "
+                    .. "%d-%d ticks and look around while they do",
+                BNS.Programs.WANDER_MIN, BNS.Squads.MILL_MIN,
+                BNS.Programs.REST_CHANCE, BNS.Programs.REST_MIN,
+                BNS.Programs.REST_MAX))
+        end,
+    },
     squads = {
         label = "Squad cohesion",
         watch = "every bandit group, its spread, and anyone who has "

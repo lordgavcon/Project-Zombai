@@ -35,6 +35,7 @@ local SPAWN_BUTTONS = {
 }
 
 local SCENARIOS = {
+    { name = "patrol",    label = "Wander patrol" },
     { name = "noise",     label = "Gunshots + noise" },
     { name = "warning",   label = "Warning shout" },
     { name = "robbery",   label = "Robbery" },
