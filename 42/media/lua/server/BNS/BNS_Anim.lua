@@ -124,11 +124,108 @@ function BNS.Anim.isTwoHanded(item, class)
     return BNS.Anim.TwoHanded[class] == true
 end
 
+-- Vanilla handlers that assume a player ---------------------------------
+--
+-- `setPrimaryHandItem` fires `OnEquipPrimary`, and every Lua handler
+-- registered on that event then runs against *our shell*. B42's fishing
+-- handler calls a method only IsoPlayer has, so arming an NPC threw
+-- "Object tried to call nil in handleFishing" and dumped a full Kahlua
+-- stack trace -- two dozen of them in one session, every one of them
+-- from BNS_Anim.equip. A pcall around the setter does not help: the
+-- trace is printed where the error surfaces, inside the event, long
+-- before anything of ours could catch it.
+--
+-- So the handler is *wrapped* rather than the setter guarded: it is
+-- removed and re-added behind a filter that lets a player through
+-- untouched and drops a shell. The handler has to be reachable by name
+-- to do that, which is not something that can be checked offline, so it
+-- is a candidate list (CLAUDE.md) and each entry is reported. A build
+-- where none of them resolve behaves exactly as before -- noisily, but
+-- correctly -- rather than having vanilla fishing quietly rewired.
+--
+-- Only ever wrap; never just remove. Dropping a vanilla handler takes
+-- the feature with it.
+BNS.Anim.PlayerOnlyHandlers = {
+    -- event name, then where the handler might be reachable from.
+    { event = "OnEquipPrimary", path = "FishingHandler.onEquipPrimary" },
+    { event = "OnEquipPrimary", path = "FishingHandler.OnEquipPrimary" },
+    { event = "OnEquipPrimary", path = "onEquipPrimary" },
+}
+
+-- op path -> "wrapped" / "not found" / an error, for the debug probe.
+BNS.Anim.shielded = {}
+-- ...and the handler functions already dealt with, because two candidate
+-- paths can point at the same function. Wrapping one twice would run
+-- vanilla's handler twice for every player equipping anything.
+BNS.Anim.shieldedFns = {}
+
+local function resolve(path)
+    local node = _G
+    for part in string.gmatch(path, "[^%.]+") do
+        if type(node) ~= "table" then return nil end
+        node = node[part]
+        if node == nil then return nil end
+    end
+    return type(node) == "function" and node or nil
+end
+
+function BNS.Anim.shieldEquipEvents()
+    for _, entry in ipairs(BNS.Anim.PlayerOnlyHandlers) do
+        -- "not found" is not settled: nothing was called to find out, so
+        -- looking again costs a couple of table reads and a handler that
+        -- is registered later still gets shielded. Only a wrap or a real
+        -- failure latches.
+        if BNS.Anim.shielded[entry.path] == nil
+                or BNS.Anim.shielded[entry.path] == "not found" then
+            local handler = resolve(entry.path)
+            local event = Events and Events[entry.event]
+            if not handler or not event or not event.Remove or not event.Add then
+                BNS.Anim.shielded[entry.path] = "not found"
+            elseif BNS.Anim.shieldedFns[handler] then
+                BNS.Anim.shielded[entry.path] = "wrapped"
+            else
+                local ok, err = pcall(function()
+                    event.Remove(handler)
+                    event.Add(function(character, item)
+                        -- A shell is not a player and never fishes.
+                        if character and BNS.isNPC(character) then return end
+                        return handler(character, item)
+                    end)
+                end)
+                BNS.Anim.shielded[entry.path] = ok and "wrapped" or tostring(err)
+                if ok then BNS.Anim.shieldedFns[handler] = true end
+                if ok then
+                    BNS.log("shielded vanilla '" .. entry.path
+                        .. "' from NPC shells (" .. entry.event .. ")")
+                else
+                    BNS.log("could not shield '" .. entry.path .. "': " .. tostring(err))
+                end
+            end
+        end
+    end
+end
+
+-- For the debug probe: what the shielding pass managed.
+function BNS.Anim.shieldReport()
+    local lines = {}
+    for _, entry in ipairs(BNS.Anim.PlayerOnlyHandlers) do
+        local state = BNS.Anim.shielded[entry.path]
+        table.insert(lines, string.format("  %s %s (%s)",
+            state == "wrapped" and "[ok]" or "[no]", entry.path, entry.event))
+    end
+    return lines
+end
+
 -- Put a weapon in the shell's hands -- in as many hands as it takes --
 -- and point the animation at the matching clip set. Every weapon a shell
 -- ever holds goes through here, so a swap mid-fight is dressed the same
 -- way the initial spawn is.
 function BNS.Anim.equip(zombie, brain, weapon)
+    -- Done here rather than at load: vanilla's own files may not have
+    -- run yet when this module is required, and the first equip is the
+    -- first time it matters. The pass is a no-op once each candidate has
+    -- been settled one way or the other.
+    BNS.Anim.shieldEquipEvents()
     if weapon then brain.weapon = weapon end
     local class = BNS.Anim.weaponClass(brain.weapon)
     local item = nil

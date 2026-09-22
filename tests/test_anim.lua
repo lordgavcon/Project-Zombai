@@ -469,4 +469,86 @@ assert(filtered[2].item == "Base.WaterBottle", "the surviving line carries the r
 assert(filtered[2].value == 3, "and keeps its other fields")
 print("item id resolution OK")
 
+-- 10. Vanilla equip handlers never see a shell ---------------------------------------------
+-- setPrimaryHandItem fires OnEquipPrimary at every registered handler,
+-- and B42's fishing handler calls a method only IsoPlayer has: arming an
+-- NPC threw "Object tried to call nil in handleFishing" and dumped a
+-- stack trace per equip. A pcall around the setter cannot help -- the
+-- trace is printed inside the event. So the handler is wrapped: players
+-- through, shells dropped.
+--
+-- A real event object, because the whole mechanism is Remove-then-Add.
+local fired = {}
+local listeners = {}
+Events.OnEquipPrimary = {
+    Add = function(fn) table.insert(listeners, fn) end,
+    Remove = function(fn)
+        for i, f in ipairs(listeners) do
+            if f == fn then table.remove(listeners, i) return end
+        end
+    end,
+}
+local function triggerEquip(character, item)
+    for _, fn in ipairs(listeners) do fn(character, item) end
+end
+
+-- Vanilla's handler, written for players only, exactly as B42's is.
+FishingHandler = {}
+function FishingHandler.onEquipPrimary(character, item)
+    table.insert(fired, character)
+    -- This is the line that threw: a shell has no getPlayerNum.
+    return character:getPlayerNum()
+end
+Events.OnEquipPrimary.Add(FishingHandler.onEquipPrimary)
+
+BNS.Anim.shielded = {}
+BNS.Anim.shieldedFns = {}
+BNS.Anim.shieldEquipEvents()
+assert(BNS.Anim.shielded["FishingHandler.onEquipPrimary"] == "wrapped",
+    "the handler is found and wrapped, got "
+        .. tostring(BNS.Anim.shielded["FishingHandler.onEquipPrimary"]))
+assert(#listeners == 1, "and wrapped, not doubled up: " .. #listeners .. " listeners")
+
+-- A shell equipping something no longer reaches it.
+local shellChar = { __iso = "IsoZombie", modData = { BNS = { id = "eq1" } } }
+function shellChar:getModData() return self.modData end
+triggerEquip(shellChar, {})
+assert(#fired == 0, "an NPC shell never reaches the player-only handler")
+
+-- ...and a player still does. Removing a vanilla handler would take
+-- fishing with it; this only filters it.
+local realPlayer = { __iso = "IsoPlayer", num = 0 }
+function realPlayer:getModData() return {} end
+function realPlayer:getPlayerNum() return self.num end
+triggerEquip(realPlayer, {})
+assert(#fired == 1 and fired[1] == realPlayer,
+    "a real player still reaches vanilla's handler")
+
+-- Settled once: a second pass must not wrap the wrapper.
+BNS.Anim.shieldEquipEvents()
+assert(#listeners == 1, "the pass is idempotent, got " .. #listeners .. " listeners")
+
+-- Two candidate paths onto the same function is one wrap, not two:
+-- wrapping it twice would run vanilla's handler twice for every player.
+onEquipPrimary = FishingHandler.onEquipPrimary
+BNS.Anim.shieldEquipEvents()
+assert(#listeners == 1,
+    "a handler reachable by two names is wrapped once, got " .. #listeners)
+fired = {}
+triggerEquip(realPlayer, {})
+assert(#fired == 1, "and a player's equip runs it exactly once, got " .. #fired)
+onEquipPrimary = nil
+
+-- A build where the handler is not reachable is left completely alone
+-- rather than having its event wiring guessed at.
+BNS.Anim.shielded = {}
+BNS.Anim.shieldedFns = {}
+FishingHandler = nil
+listeners = {}
+BNS.Anim.shieldEquipEvents()
+assert(BNS.Anim.shielded["FishingHandler.onEquipPrimary"] == "not found",
+    "an unreachable handler is reported, not guessed at")
+assert(#listeners == 0, "and nothing is registered in its place")
+print("vanilla equip handlers shielded OK")
+
 print("ALL TESTS PASSED")

@@ -340,6 +340,14 @@ function BNS.Debug.animProbe(player, args)
     end
     note(player, string.format("  hands: main=%s off=%s",
         handOf("getPrimaryHandItem"), handOf("getSecondaryHandItem")))
+    -- Arming a shell fires OnEquipPrimary at every vanilla handler, some
+    -- of which are written for players only. [no] on all of these means
+    -- console.txt gets a stack trace per equip; it is noise, not a
+    -- malfunction, but it is worth knowing which way round it is.
+    if BNS.Anim.shieldReport then
+        note(player, "  vanilla equip handlers shielded:")
+        for _, line in ipairs(BNS.Anim.shieldReport()) do note(player, "  " .. line) end
+    end
     note(player, string.format("  vars: BNSNPC=%s BNSAnim=%s Weapon=%s (brain mode %s)",
         tostring(shell.getVariable and shell:getVariable("BNSNPC")),
         tostring(shell.getVariable and shell:getVariable("BNSAnim")),

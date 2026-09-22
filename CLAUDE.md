@@ -370,6 +370,23 @@ Two invariants worth keeping in mind when touching the debug code:
   (`HOLD_GAP` puts the shell back in its stance in between), and `RECOVER`
   is sized so there is room for the clip in the first place. The same
   applies to shots inside a burst.
+- **Arming a shell runs every vanilla `OnEquipPrimary` handler, and some
+  of them are written for players only.** B42's fishing handler calls a
+  method only `IsoPlayer` has, so `setPrimaryHandItem` on an NPC threw
+  `Object tried to call nil in handleFishing` and dumped a Kahlua stack
+  trace per equip. **A `pcall` around the setter does not help** — the
+  trace is printed where the error surfaces, inside the event, before
+  anything of ours could catch it; this is the one case the "guard it and
+  move on" rule cannot cover. `BNS.Anim.shieldEquipEvents` therefore
+  *wraps* the handler: removes it and re-adds it behind a filter that
+  passes a player straight through and drops a shell. **Only ever wrap,
+  never just remove** — dropping a vanilla handler takes its feature with
+  it. Whether the handler is reachable by name cannot be checked offline,
+  so `BNS.Anim.PlayerOnlyHandlers` is a candidate list and PROBE reports
+  each entry; a build where none resolve behaves exactly as before,
+  noisily but correctly, rather than having vanilla's event wiring
+  guessed at. A handler reachable under two names is wrapped once
+  (`shieldedFns`), or players run it twice.
 - **Both hands, or one, is the weapon class's call.** `BNS.Anim.equip` is
   the only way a weapon reaches a shell's hands: it asks the item
   (`isTwoHandWeapon`, probed once) and falls back to

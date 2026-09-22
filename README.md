@@ -190,7 +190,12 @@ Non-admin requests are dropped and logged.
 - Not yet play-tested against 42.20 — B42's Lua API is still moving, and a
   few calls (e.g. `IsoBarricade.AddBarricadeToObject`, outfit names) may
   need renaming against the current javadocs. Everything is guarded where
-  practical; check `console.txt` for `[BNS]` lines.
+  practical; check `console.txt` for `[BNS]` lines. Arming an NPC also
+  runs every vanilla `OnEquipPrimary` handler against the shell, and
+  B42's fishing handler assumes a player — the mod wraps it so shells are
+  filtered out and players are unaffected, but on a build where that
+  handler cannot be reached by name the stack traces come back. PROBE
+  says which it is.
 - **Firearm behaviour is simulated, not driven by real ammunition.**
   Magazine sizes, reload times and burst discipline live in
   `BNS.Loadouts.Magazines` and are gameplay numbers, not the values of the
